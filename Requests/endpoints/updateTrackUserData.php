@@ -16,7 +16,6 @@ include_once 'includedFiles.php';
 if (!empty($db)) {
 
     $data = json_decode(file_get_contents("php://input"));
-//
     if (!empty($data->user_id)) {
         $handler = new Handler($db,$redis_con);
 

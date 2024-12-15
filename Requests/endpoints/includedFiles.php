@@ -25,4 +25,3 @@ include_once '../../Includes/TableFunctions/FilterGateway.php';
 
 $database = new Database();
 $db = $database->getConnection();
-$redis_con = $database->getReddisConnection();
