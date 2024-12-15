@@ -172,7 +172,11 @@ class Handler
             // Return success response
             return [
             'status' => 'success',
-            'message' => 'Verification Token saved successfully.'
+            'message' => [
+                'email' => $email,
+                'token' => $token,
+                'expires' => $expires
+                ]
             ];
 
         } catch (Exception $e){
@@ -206,7 +210,11 @@ class Handler
             // Return success response
             return [
             'status' => 'success',
-            'message' => 'PasswordReset Token saved successfully.'
+            'message' => [
+                'email' => $email,
+                'token' => $token,
+                'expires' => $expires
+                ]
             ];
 
         } catch (Exception $e){
@@ -282,6 +290,50 @@ class Handler
         }
     }
 
+    public function updateEmailVerified($data) {
+        $email = $data['email'];
+        $user_id = $data['user_id'];
+        $emailVerified = $data['emailVerifiedDate'];
+    
+        try {
+            // Prepare the update query
+            $update_query = "UPDATE MwonyaCreators SET emailVerified = ?, email = ?, updated_at = NOW() WHERE id = ?";
+            $update_stmt = $this->conn->prepare($update_query);
+    
+            if (!$update_stmt) {
+                throw new Exception("Failed to prepare update statement: " . $this->conn->error);
+            }
+    
+            // Bind parameters to the query
+            $update_stmt->bind_param("sss", $emailVerified, $email, $user_id);
+    
+            // Execute the query
+            $update_stmt->execute();
+    
+            // Check if any rows were affected
+            if ($update_stmt->affected_rows > 0) {
+                $update_stmt->close();
+                return [
+                    'status' => 'success',
+                    'message' => 'Email verified successfully.'
+                ];
+            } else {
+                $update_stmt->close();
+                return [
+                    'status' => 'error',
+                    'message' => 'No record found to update or no changes were made.'
+                ];
+            }
+        } catch (Exception $e) {
+            // Log the error and return a descriptive message
+            error_log("Database error in updateEmailVerified: " . $e->getMessage());
+            return [
+                'status' => 'error',
+                'message' => $e->getMessage()
+            ];
+        }
+    }
+    
     public function deletePasswordResetTokenbyID($id){
         // Prepare the delete query
         $query = "DELETE FROM MwonyaPasswordResetToken WHERE id =  ?";
