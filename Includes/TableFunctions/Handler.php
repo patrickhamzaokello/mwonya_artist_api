@@ -7,40 +7,198 @@ class Handler
 
     // track update info
 
-    public function __construct($con, $redis_con)
+    public function __construct($con)
     {
         $this->conn = $con;
-        $this->redis = $redis_con;
         $this->version = 18; // VersionCode
     }
 
+    
+    public function getMwonyaCreatorByID($user_id){
+        try {
+            // Use a prepared statement to prevent SQL injection
+            $query = "SELECT * FROM MwonyaCreators  WHERE id = ? LIMIT 1";
+            $stmt = $this->conn->prepare($query);
+            if (!$stmt) {
+                throw new Exception("Failed to prepare statement: " . $this->db->error);
+            }
 
+            $stmt->bind_param("i", $user_id); // Bind user_id as an integer
+            $stmt->execute();
+            $result = $stmt->get_result();
+            $user = $result->fetch_assoc();
 
-
-    public   function Versioning()
-    {
-        $userID = isset($_GET['userID']) ? htmlspecialchars(strip_tags($_GET["userID"])) : 'general_user';
-        $current_now = date('Y-m-d H:i:s');
-        $user_subscription_sql = "SELECT pt.user_id AS userId, pt.subscription_type AS subscription_type, pt.amount AS planCost, pt.plan_duration AS durationInDays, UNIX_TIMESTAMP(pt.payment_created_date) * 1000 AS date FROM pesapal_transactions pt JOIN pesapal_payment_status pps ON pt.merchant_reference = pps.merchant_reference WHERE pt.subscription_type <> 'artist_circle' AND pt.user_id = '$userID' AND pps.status_code = 1 AND pt.plan_start_datetime <= '$current_now' AND pt.plan_end_datetime >= '$current_now' ORDER BY pt.payment_created_date DESC LIMIT 1";
-
-        $subscription_details = array();
-        $user_subscription_sql_result = mysqli_query($this->conn, $user_subscription_sql);
-        while ($row = mysqli_fetch_array($user_subscription_sql_result)) {
-            $temp = array();
-            $temp['id'] = $row['userId'];
-            $temp['subscription_type'] = $row['subscription_type'];
-            $temp['planCost'] = $row['planCost'];
-            $temp['durationInDays'] = $row['durationInDays'];
-            $temp['date'] = $row['date'];
-            array_push($subscription_details, $temp);
+            $stmt->close();
+            return $user; // Return user as associative array
+        } catch (Exception $e) {
+            error_log("Database error in getMwonyaCreatorByID: " . $e->getMessage());
+            return null;
         }
+    }
 
-        $itemRecords = array();
-        $itemRecords["version"] = "20"; // build number should match
-        $itemRecords["update"] = true; // update dialog dismissable
-        $itemRecords["subcription"] = $subscription_details;
-        $itemRecords["message"] = "We have new updates for you";
-        return $itemRecords;
+    public function getMwonyaCreatorByEmail($email){
+        try {
+            // Use a prepared statement to prevent SQL injection
+            $query = "SELECT * FROM MwonyaCreators  WHERE email = ? LIMIT 1";
+            $stmt = $this->conn->prepare($query);
+            if (!$stmt) {
+                throw new Exception("Failed to prepare statement: " . $this->db->error);
+            }
+
+            $stmt->bind_param("s", $email); // Bind email as a string
+            $stmt->execute();
+            $result = $stmt->get_result();
+            $user = $result->fetch_assoc();
+
+            $stmt->close();
+            return $user; // Return user as associative array
+        } catch (Exception $e) {
+            error_log("Database error in getMwonyaCreatorByEmail: " . $e->getMessage());
+            return null;
+        }
+    }
+
+    public function getMwonyaVerificationTokenByToken($token){
+        try {
+            // Use a prepared statement to prevent SQL injection
+            $query = "SELECT * FROM MwonyaVerificationToken  WHERE token = ? LIMIT 1";
+            $stmt = $this->conn->prepare($query);
+            if (!$stmt) {
+                throw new Exception("Failed to prepare statement: " . $this->conn->error);
+            }
+
+            $stmt->bind_param("s", $token); 
+            $stmt->execute();
+            $result = $stmt->get_result();
+            $user = $result->fetch_assoc();
+
+            $stmt->close();
+            return $user; // Return user as associative array
+        } catch (Exception $e) {
+            error_log("Database error in MwonyaVerificationToken: " . $e->getMessage());
+            return null;
+        }
+    }
+
+    public function getMwonyaVerificationTokenByEmail($email){
+        try {
+            // Use a prepared statement to prevent SQL injection
+            $query = "SELECT * FROM MwonyaVerificationToken  WHERE email = ? LIMIT 1";
+            $stmt = $this->conn->prepare($query);
+            if (!$stmt) {
+                throw new Exception("Failed to prepare statement: " . $this->conn->error);
+            }
+
+            $stmt->bind_param("s", $email); 
+            $stmt->execute();
+            $result = $stmt->get_result();
+            $user = $result->fetch_assoc();
+
+            $stmt->close();
+            return $user; // Return user as associative array
+        } catch (Exception $e) {
+            error_log("Database error in MwonyaVerificationToken: " . $e->getMessage());
+            return null;
+        }
+    }
+
+
+    public function registerMwonyaCreator($data){
+        $email = $data['email'];
+        $username = $data['username'];
+        $phone_number = $data['phone_number'];
+        $password = $data['password'];
+        $creator_role = $data['creator_role'];
+
+        try {
+              // Prepare the insert query
+            $insert_query = "INSERT INTO MwonyaCreators (username, email, phone, password, role) 
+            VALUES (?, ?, ?, ?, ?)";
+
+            $insert_stmt = $this->conn->prepare($insert_query);
+            if (!$insert_stmt) {
+            throw new Exception("Failed to prepare insert statement: " . $this->conn->error);
+            }
+
+            // Bind parameters to the insert query
+            $insert_stmt->bind_param("sssss", $username, $email, $phone_number, $password, $creator_role);
+
+            // Execute the query
+            $insert_stmt->execute();
+            $insert_stmt->close();
+
+            // Return success response
+            return [
+            'status' => 'success',
+            'message' => 'Creator registered successfully.'
+            ];
+
+        } catch (Exception $e){
+            error_log("Database error in getMwonyaCreatorByEmail: " . $e->getMessage());
+            return $e->getMessage();
+        }
+    }
+
+
+    public function DeleteExpiredPasswordTokens($current_date){
+        // Prepare the delete query
+        $query = "DELETE FROM MwonyaPasswordResetToken WHERE date(expires) < ?";
+        
+        // Prepare the statement
+        $stmt = $this->conn->prepare($query);
+        if (!$stmt) {
+            throw new Exception("Failed to prepare statement: " . $this->conn->error);
+        }
+        
+        // Bind the current date parameter
+        $stmt->bind_param("s", $current_date);
+
+        // Execute the query
+        if ($stmt->execute()) {
+            $deleted_rows = $stmt->affected_rows; // Get the number of deleted rows
+            $stmt->close();
+            return [
+                'status' => 'success',
+                'message' => "$deleted_rows expired tokens deleted successfully."
+            ];
+        } else {
+            $stmt->close();
+            return [
+                'status' => 'error',
+                'message' => 'Failed to delete expired tokens.'
+            ];
+        }
+    }
+
+
+    public function DeleteExpiredTokens($current_date){
+        // Prepare the delete query
+        $query = "DELETE FROM MwonyaVerificationToken WHERE date(expires) < ?";
+        
+        // Prepare the statement
+        $stmt = $this->conn->prepare($query);
+        if (!$stmt) {
+            throw new Exception("Failed to prepare statement: " . $this->conn->error);
+        }
+        
+        // Bind the current date parameter
+        $stmt->bind_param("s", $current_date);
+
+        // Execute the query
+        if ($stmt->execute()) {
+            $deleted_rows = $stmt->affected_rows; // Get the number of deleted rows
+            $stmt->close();
+            return [
+                'status' => 'success',
+                'message' => "$deleted_rows expired tokens deleted successfully."
+            ];
+        } else {
+            $stmt->close();
+            return [
+                'status' => 'error',
+                'message' => 'Failed to delete expired tokens.'
+            ];
+        }
     }
 
    
