@@ -426,5 +426,262 @@ class Handler
         }
     }
 
+
+    public function getCreatorArtistProfiles($user_id)
+{
+    try {
+        // SQL query to fetch required artist data with genre details
+        $query = "
+            SELECT 
+                a.id, 
+                a.name, 
+                g.id AS genre_id, 
+                g.name AS genre_name, 
+                a.bio AS biography, 
+                a.verified, 
+                a.profilephoto AS profile_image_url, 
+                a.coverimage AS cover_image_url
+            FROM 
+                artists a
+            LEFT JOIN 
+                genres g 
+            ON 
+                a.genre = g.id
+            WHERE 
+                a.creator_id = ?
+            ORDER BY a.name asc";
+        
+        $stmt = $this->conn->prepare($query);
+
+        if (!$stmt) {
+            throw new Exception("Failed to prepare statement: " . $this->conn->error);
+        }
+
+        // Bind the user_id parameter as an integer
+        $stmt->bind_param("i", $user_id);
+        $stmt->execute();
+
+        $result = $stmt->get_result();
+
+        // Fetch all results and map them to the desired structure
+        $artists = [];
+        while ($row = $result->fetch_assoc()) {
+            $artists[] = [
+                'id' => $row['id'],
+                'name' => $row['name'],
+                'biography' => $row['biography'] ?? null,
+                'verified' => $row['verified'] ? true : null,
+                'genre' => $row['genre_id'] ? [
+                    'id' => $row['genre_id'],
+                    'name' => $row['genre_name']
+                ] : null,
+                'profileImage' => $row['profile_image_url'] ? [
+                    'fileUrl' => $row['profile_image_url']
+                ] : null,
+                'coverImage' => $row['cover_image_url'] ? [
+                    'fileUrl' => $row['cover_image_url']
+                ] : null
+            ];
+        }
+
+        $stmt->close();
+        return $artists; // Return an array of artist objects
+    } catch (Exception $e) {
+        error_log("Database error in getCreatorArtistProfiles: " . $e->getMessage());
+        return null;
+    }
+}
+
+public function getArtistDiscovery($artist_id)
+{
+    try {
+        // SQL query to fetch album and related information with artist and genre details
+        $query = "
+            SELECT 
+                al.id, 
+                al.title, 
+                al.releaseDate, 
+                YEAR(al.releaseDate) AS release_year, 
+                al.tag,
+                al.AES_code, 
+                al.exclusive, 
+                g.name AS genre,
+                al.artworkPath AS artwork_path,
+                COUNT(s.id) AS total_songs
+            FROM 
+                albums al
+            LEFT JOIN 
+                artists a ON al.artist = a.id
+            LEFT JOIN 
+                genres g ON a.genre = g.id
+            LEFT JOIN 
+                songs s ON s.album = al.id
+            WHERE 
+                al.artist = ?
+            GROUP BY 
+                al.id
+            ORDER BY 
+                al.releaseDate DESC";
+        
+        $stmt = $this->conn->prepare($query);
+
+        if (!$stmt) {
+            throw new Exception("Failed to prepare statement: " . $this->conn->error);
+        }
+
+        // Bind the artist_id parameter as an integer
+        $stmt->bind_param("s", $artist_id);
+        $stmt->execute();
+
+        $result = $stmt->get_result();
+
+        // Fetch all results and map them to the desired structure
+        $albums = [];
+        while ($row = $result->fetch_assoc()) {
+            $albums[] = [
+                'id' => $row['id'],
+                'title' => $row['title'],
+                'releaseDate' => $row['releaseDate'],
+                'releaseYear' => $row['release_year'],
+                'tag' => $row['tag'],
+                'AES_code' => $row['AES_code'],
+                'exclusive' => $row['exclusive'] ? true : false,
+                'genre' => $row['genre'] ?? null,
+                'artwork' => $row['artwork_path'] ? [
+                    'fileUrl' => $row['artwork_path']
+                ] : null,
+                'totalSongs' => $row['total_songs']
+            ];
+        }
+
+        $stmt->close();
+        return $albums; // Return an array of album objects
+    } catch (Exception $e) {
+        error_log("Database error in getArtistDiscovery: " . $e->getMessage());
+        return null;
+    }
+}
+
+
+public function getContentDetailsByID($content_id)
+{
+    try {
+        // SQL query to fetch album details
+        $albumQuery = "
+            SELECT 
+                al.id AS content_id,
+                al.title,
+                a.name AS artist,
+                al.artworkPath AS imageUrl,
+                g.name AS category,
+                al.description,
+                al.releaseDate
+            FROM 
+                albums al
+            LEFT JOIN 
+                artists a ON al.artist = a.id
+            LEFT JOIN 
+                genres g ON a.genre = g.id
+            WHERE 
+                al.id = ?";
+
+        $stmt = $this->conn->prepare($albumQuery);
+
+        if (!$stmt) {
+            throw new Exception("Failed to prepare statement: " . $this->conn->error);
+        }
+
+        // Bind the content_id parameter as an integer
+        $stmt->bind_param("s", $content_id);
+        $stmt->execute();
+
+        $albumResult = $stmt->get_result();
+        
+        $album = $albumResult->fetch_assoc();
+
+        if (!$album) {
+            throw new Exception("Album not found for content_id: $content_id");
+        }
+
+        // SQL query to fetch tracks for the album
+        $tracksQuery = "
+            SELECT 
+                title,
+                duration
+            FROM 
+                songs
+            WHERE 
+                album = ?";
+        
+        $tracksStmt = $this->conn->prepare($tracksQuery);
+
+        if (!$tracksStmt) {
+            throw new Exception("Failed to prepare statement for tracks: " . $this->conn->error);
+        }
+
+        // Bind the content_id parameter to fetch tracks
+        $tracksStmt->bind_param("s", $content_id);
+        $tracksStmt->execute();
+
+        $tracksResult = $tracksStmt->get_result();
+        $tracks = [];
+
+        while ($track = $tracksResult->fetch_assoc()) {
+            $tracks[] = [
+                'title' => $track['title'],
+                'duration' => $track['duration']
+            ];
+        }
+
+        $tracksStmt->close();
+
+
+
+        // Add duration calculation
+        $totalDurationQuery = "
+            SELECT 
+                SEC_TO_TIME(SUM(TIME_TO_SEC(duration))) AS total_duration
+            FROM 
+                songs
+            WHERE 
+                album = ?";
+        
+        $durationStmt = $this->conn->prepare($totalDurationQuery);
+
+        if (!$durationStmt) {
+            throw new Exception("Failed to prepare statement for duration: " . $this->conn->error);
+        }
+
+        $durationStmt->bind_param("s", $content_id);
+        $durationStmt->execute();
+
+        $durationResult = $durationStmt->get_result();
+        $totalDuration = $durationResult->fetch_assoc()['total_duration'];
+        $durationStmt->close();
+
+        $stmt->close();
+
+
+        // Format the response
+        return [
+            'content_id' => $album['content_id'],
+            'title' => $album['title'],
+            'artist' => $album['artist'] ?? 'Various Artists',
+            'imageUrl' => $album['imageUrl'],
+            'category' => $album['category'] ?? 'Unknown',
+            'description' => $album['description'] ?? 'No description available.',
+            'releaseDate' => $album['releaseDate'],
+            'duration' => $totalDuration ?? '0h 0m',
+            'tracks' => $tracks
+        ];
+    } catch (Exception $e) {
+        error_log("Database error in getContentDetailsByID: " . $e->getMessage());
+        return null;
+    }
+}
+
+
+
+    
    
 }
