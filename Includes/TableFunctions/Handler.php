@@ -563,6 +563,100 @@ public function getArtistDiscovery($artist_id)
 }
 
 
+public function addSingleTrackWithAlbum($trackDetails)
+{
+    try {
+        // Begin a transaction
+        $this->conn->begin_transaction();
+
+        // Insert into albums table
+        $albumQuery = "
+            INSERT INTO albums 
+                (`id`, `title`, `artist`, `genre`, `artworkPath`, `exclusive`, `tag`, `description`, `datecreated`, `releaseDate`, `AES_code`) 
+            VALUES 
+                (?, ?, ?, ?,?, ?, ?, ?, NOW(), ?, ?)";  // Available set to 0 by default
+        
+        $albumStmt = $this->conn->prepare($albumQuery);
+        
+        if (!$albumStmt) {
+            throw new Exception("Failed to prepare album statement: " . $this->conn->error);
+        }
+
+        $albumStmt->bind_param(
+            "sssssissss",
+            $trackDetails['album_id'],
+            $trackDetails['album_title'],
+            $trackDetails['artist'],
+            $trackDetails['genre'],
+            $trackDetails['artworkPath'],
+            $trackDetails['exclusive'],
+            $trackDetails['tag'],
+            $trackDetails['description'],
+            $trackDetails['releaseDate'],
+            $trackDetails['AES_code'],  // AES_code specifies whether it's a single, album, or EP
+        );
+
+        if (!$albumStmt->execute()) {
+            throw new Exception("Failed to execute album query: " . $albumStmt->error);
+        }
+
+        // Insert into songs table
+        $songQuery = "
+            INSERT INTO songs 
+                (`title`, `artist`, `album`, `genre`, `duration`, `path`, `tag`, `producer`, `songwriter`, 
+                 `labels`, `description`, `dateAdded`, `releaseDate`) 
+            VALUES 
+                (?, ?, ?, ?,  ?, ?, ?, ?, ?, ?, ?, NOW(), ?)";  // Available set to 0 by default
+        
+        $songStmt = $this->conn->prepare($songQuery);
+
+        if (!$songStmt) {
+            throw new Exception("Failed to prepare song statement: " . $this->conn->error);
+        }
+
+        $songStmt->bind_param(
+            "ssssssssssss",
+            $trackDetails['title'],
+            $trackDetails['artist'],
+            $trackDetails['album_id'],
+            $trackDetails['genre'],
+            $trackDetails['duration'],
+            $trackDetails['path'],
+            $trackDetails['tag'],
+            $trackDetails['producer'],
+            $trackDetails['songwriter'],
+            $trackDetails['labels'],
+            $trackDetails['description'],
+            $trackDetails['releaseDate'],
+        );
+
+        if (!$songStmt->execute()) {
+            throw new Exception("Failed to execute song query: " . $songStmt->error);
+        }
+
+        // Commit the transaction
+        $this->conn->commit();
+
+        return [
+            'success' => true,
+            'message' => 'Single track and content added successfully',
+            'track_id' => $this->conn->insert_id,
+            'album_id' =>  $trackDetails['album_id']
+        ];
+
+    } catch (Exception $e) {
+        // Rollback the transaction in case of an error
+        $this->conn->rollback();
+        error_log("Database error in addSingleTrackWithcontent: " . $e->getMessage());
+        return [
+            'success' => false,
+            'message' => "Database error in addSingle TrackWithcontent:  and content: " . $e->getMessage()
+        ];
+    }
+}
+
+
+
 public function getContentDetailsByID($content_id)
 {
     try {
@@ -607,7 +701,8 @@ public function getContentDetailsByID($content_id)
         $tracksQuery = "
             SELECT 
                 title,
-                duration
+                duration,
+                path as trackFilePath
             FROM 
                 songs
             WHERE 
@@ -629,7 +724,8 @@ public function getContentDetailsByID($content_id)
         while ($track = $tracksResult->fetch_assoc()) {
             $tracks[] = [
                 'title' => $track['title'],
-                'duration' => $track['duration']
+                'duration' => $track['duration'],
+                'trackFilePath' => $track['trackFilePath']
             ];
         }
 
