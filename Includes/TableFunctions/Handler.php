@@ -572,9 +572,9 @@ public function addSingleTrackWithAlbum($trackDetails)
         // Insert into albums table
         $albumQuery = "
             INSERT INTO albums 
-                (`id`, `title`, `artist`, `genre`, `artworkPath`, `exclusive`, `tag`, `description`, `datecreated`, `releaseDate`, `AES_code`) 
+                (`id`, `title`, `artist`, `genre`, `exclusive`, `tag`, `description`, `datecreated`, `releaseDate`, `AES_code`) 
             VALUES 
-                (?, ?, ?, ?,?, ?, ?, ?, NOW(), ?, ?)";  // Available set to 0 by default
+                (?, ?, ?, ?,?, ?, ?, NOW(), ?, ?)";  // Available set to 0 by default
         
         $albumStmt = $this->conn->prepare($albumQuery);
         
@@ -583,12 +583,11 @@ public function addSingleTrackWithAlbum($trackDetails)
         }
 
         $albumStmt->bind_param(
-            "sssssissss",
+            "ssssissss",
             $trackDetails['album_id'],
             $trackDetails['album_title'],
             $trackDetails['artist'],
             $trackDetails['genre'],
-            $trackDetails['artworkPath'],
             $trackDetails['exclusive'],
             $trackDetails['tag'],
             $trackDetails['description'],
@@ -603,10 +602,10 @@ public function addSingleTrackWithAlbum($trackDetails)
         // Insert into songs table
         $songQuery = "
             INSERT INTO songs 
-                (`title`, `artist`, `album`, `genre`, `duration`, `path`, `tag`, `producer`, `songwriter`, 
+                (`title`, `reference`, `artist`, `album`, `genre`, `duration`, `tag`, `producer`, `songwriter`, 
                  `labels`, `description`, `dateAdded`, `releaseDate`) 
             VALUES 
-                (?, ?, ?, ?,  ?, ?, ?, ?, ?, ?, ?, NOW(), ?)";  // Available set to 0 by default
+                (?, ?, ?, ?, ?,  ?, ?, ?, ?, ?, ?, NOW(), ?)";  // Available set to 0 by default
         
         $songStmt = $this->conn->prepare($songQuery);
 
@@ -617,11 +616,11 @@ public function addSingleTrackWithAlbum($trackDetails)
         $songStmt->bind_param(
             "ssssssssssss",
             $trackDetails['title'],
+            $trackDetails['track_reference'],
             $trackDetails['artist'],
             $trackDetails['album_id'],
             $trackDetails['genre'],
             $trackDetails['duration'],
-            $trackDetails['path'],
             $trackDetails['tag'],
             $trackDetails['producer'],
             $trackDetails['songwriter'],
@@ -640,7 +639,7 @@ public function addSingleTrackWithAlbum($trackDetails)
         return [
             'success' => true,
             'message' => 'Single track and content added successfully',
-            'track_id' => $this->conn->insert_id,
+            'track_id' => $trackDetails['track_reference'],
             'album_id' =>  $trackDetails['album_id']
         ];
 
@@ -772,6 +771,87 @@ public function getContentDetailsByID($content_id)
         ];
     } catch (Exception $e) {
         error_log("Database error in getContentDetailsByID: " . $e->getMessage());
+        return null;
+    }
+}
+
+public function updateTrack_CoverImageMediaUpload($referenceId ,$fileType,$awsUrl){
+    // $fileType = // 'track' or 'coverArt'
+    
+    try {
+        // Prepare the update query based on fileType
+        if ($fileType === 'track') {
+            $update_query = "UPDATE songs SET path = ?, upload_status = 'UPLOADED', updated_at = NOW() WHERE reference = ?";
+        } elseif ($fileType === 'coverArt') {
+            $update_query = "UPDATE albums SET artworkPath = ?, upload_status = 'UPLOADED',  updated_at = NOW() WHERE id = ?";
+        } else {
+            throw new Exception("Invalid file type provided.");
+        }
+
+        // Prepare the statement
+        $update_stmt = $this->conn->prepare($update_query);
+
+        if (!$update_stmt) {
+            throw new Exception("Failed to prepare update statement: " . $this->conn->error);
+        }
+
+        // Bind parameters to the query
+        $update_stmt->bind_param("ss", $awsUrl, $referenceId);
+
+        // Execute the query
+        $update_stmt->execute();
+
+        // Check if any rows were affected
+        if ($update_stmt->affected_rows > 0) {
+            $update_stmt->close();
+            return [
+                'status' => 'success',
+                'message' => 'Record updated successfully.'
+            ];
+        } else {
+            $update_stmt->close();
+            return [
+                'status' => 'error',
+                'message' => 'No record found to update or no changes were made.'
+            ];
+        }
+    } catch (Exception $e) {
+        // Log the error and return a descriptive message
+        error_log("Database error in updateTrackOrCoverArt: " . $e->getMessage());
+        return [
+            'status' => 'error',
+            'message' => $e->getMessage()
+        ];
+    }
+}
+
+public function getAllGenre(){
+    try {
+        $query = "SELECT id, name, tag FROM genres ORDER BY name asc";
+        
+        $stmt = $this->conn->prepare($query);
+
+        if (!$stmt) {
+            throw new Exception("Failed to prepare statement: " . $this->conn->error);
+        }
+
+        $stmt->execute();
+
+        $result = $stmt->get_result();
+
+        $artists = [];
+        while ($row = $result->fetch_assoc()) {
+            $artists[] = [
+                'id' => $row['id'],
+                'name' => $row['name'],
+                'tag' => $row['tag']
+            ];
+        }
+
+        $stmt->close();
+        return $artists; 
+    } catch (Exception $e) {
+        error_log("Database error in getAllGenre: " . $e->getMessage());
         return null;
     }
 }
