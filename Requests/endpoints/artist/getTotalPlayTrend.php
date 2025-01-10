@@ -48,32 +48,25 @@ if (!isset($db) || empty($db)) {
 // Parse input JSON
 $data = json_decode(file_get_contents("php://input"), true);
 
-// {
-//     "referenceId": "123",
-//     "fileType": "track", // or "coverArt"
-//     "awsUrl": "https://example.com/track.mp3" // Optional for failed uploads
-//   }
-
-$referenceId = $data['referenceId'];
-$fileType = $data['fileType'];
-$awsUrl = isset($data['awsUrl']) ? $data['awsUrl'] : null;
-$upload_status = $data['upload_status'];
-
-if (!isset($data) || (empty($referenceId) || empty($fileType) || empty($upload_status))) {
+if (!isset($data) || (!isset($data['artistID']))) {
     http_response_code(400);
     echo json_encode([
         'status' => 'error',
-        'message' => 'reference Id and fileType, upload_status are required',
+        'message' => 'Provide a valid artistID.',
     ]);
     exit;
 }
 
 try {
+    // Handler setup
     $handler = new Handler($db);
 
+    // Get user based on provided input
     $result = null;
-    $result = $handler->updateTrack_CoverImageMediaUpload($referenceId ,$fileType,$awsUrl,$upload_status);
+    $result = $handler->getArtistTotalPlayTrend($data);
 
+
+    // Respond based on result
     if ($result) {
         http_response_code(200);
         echo json_encode([
@@ -84,7 +77,7 @@ try {
         http_response_code(404);
         echo json_encode([
             'status' => 'error',
-            'message' => 'Update failed',
+            'message' => 'User not found.',
         ]);
     }
 } catch (Exception $e) {

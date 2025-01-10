@@ -146,6 +146,42 @@ class Handler
         }
     }
 
+
+    public function getArtistTotalPlayTrend($data) {
+        $artistId = $data['artistID'];
+        $year = isset($data['year']) ? $data['year'] : date('Y');
+
+        $jsonData = file_get_contents('/var/www/html/artistapi.mwonya.com/development/Includes/generated_json_data/artist_trends.json');
+        $data = json_decode($jsonData, true);
+        $filteredData = [];
+
+    
+        // Filter data by artist ID and year
+        foreach ($data as $record) {
+            if ($record['id'] == $artistId && substr($record['month'], 0, 4) == $year) {
+                $filteredData[] = $record;
+            }
+        }
+    
+        // Sort the filtered data by month
+        usort($filteredData, function($a, $b) {
+            return strcmp($a['month'], $b['month']);
+        });
+    
+        // Prepare result with month and total plays
+        $result = [];
+        foreach ($filteredData as $record) {
+            $date = DateTime::createFromFormat('Y-m', $record['month']);
+            $formattedMonth = $date->format('M');
+            $result[] = [
+                'name' => $formattedMonth,
+                'total' => round($record['total_plays_pct_change'])
+            ];
+        }
+    
+        return $result;
+    
+    }
     public function createVerificationToken($data){
         #get the  email, token, expires
         $email = $data['email'];
@@ -432,24 +468,30 @@ class Handler
     try {
         // SQL query to fetch required artist data with genre details
         $query = "
-            SELECT 
-                a.id, 
-                a.name, 
-                g.id AS genre_id, 
-                g.name AS genre_name, 
-                a.bio AS biography, 
-                a.verified, 
-                a.profilephoto AS profile_image_url, 
-                a.coverimage AS cover_image_url
-            FROM 
-                artists a
-            LEFT JOIN 
-                genres g 
-            ON 
-                a.genre = g.id
-            WHERE 
-                a.creator_id = ?
-            ORDER BY a.name asc";
+        SELECT 
+            a.id, 
+            a.name, 
+            g.id AS genre_id, 
+            g.name AS genre_name, 
+            a.bio AS biography, 
+            a.verified, 
+            a.profilephoto AS profile_image_url, 
+            a.coverimage AS cover_image_url
+        FROM 
+            Creator_Artist ca
+        INNER JOIN 
+            artists a 
+        ON 
+            ca.artist_id = a.id
+        LEFT JOIN 
+            genres g 
+        ON 
+            a.genre = g.id
+        WHERE 
+            ca.creator_id = ?
+        ORDER BY 
+            a.name ASC";
+    
         
         $stmt = $this->conn->prepare($query);
 
@@ -775,15 +817,15 @@ public function getContentDetailsByID($content_id)
     }
 }
 
-public function updateTrack_CoverImageMediaUpload($referenceId ,$fileType,$awsUrl){
+public function updateTrack_CoverImageMediaUpload($referenceId ,$fileType,$awsUrl, $upload_status){
     // $fileType = // 'track' or 'coverArt'
     
     try {
         // Prepare the update query based on fileType
         if ($fileType === 'track') {
-            $update_query = "UPDATE songs SET path = ?, upload_status = 'UPLOADED', updated_at = NOW() WHERE reference = ?";
+            $update_query = "UPDATE songs SET path = ?, upload_status = ?, updated_at = NOW() WHERE reference = ?";
         } elseif ($fileType === 'coverArt') {
-            $update_query = "UPDATE albums SET artworkPath = ?, upload_status = 'UPLOADED',  updated_at = NOW() WHERE id = ?";
+            $update_query = "UPDATE albums SET artworkPath = ?, upload_status = ?,  updated_at = NOW() WHERE id = ?";
         } else {
             throw new Exception("Invalid file type provided.");
         }
@@ -796,7 +838,7 @@ public function updateTrack_CoverImageMediaUpload($referenceId ,$fileType,$awsUr
         }
 
         // Bind parameters to the query
-        $update_stmt->bind_param("ss", $awsUrl, $referenceId);
+        $update_stmt->bind_param("sss", $awsUrl, $upload_status, $referenceId);
 
         // Execute the query
         $update_stmt->execute();
@@ -806,20 +848,20 @@ public function updateTrack_CoverImageMediaUpload($referenceId ,$fileType,$awsUr
             $update_stmt->close();
             return [
                 'status' => 'success',
-                'message' => 'Record updated successfully.'
+                'message' => $fileType. "Record updated successfully."
             ];
         } else {
             $update_stmt->close();
             return [
                 'status' => 'error',
-                'message' => 'No record found to update or no changes were made.'
+                'message' => $fileType. "No record found to update or no changes were made."
             ];
         }
     } catch (Exception $e) {
         // Log the error and return a descriptive message
         error_log("Database error in updateTrackOrCoverArt: " . $e->getMessage());
         return [
-            'status' => 'error',
+            'status' => $fileType. 'error',
             'message' => $e->getMessage()
         ];
     }
