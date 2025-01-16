@@ -48,11 +48,11 @@ if (!isset($db) || empty($db)) {
 // Parse input JSON
 $data = json_decode(file_get_contents("php://input"), true);
 
-if (!isset($data) || (!isset($data['user_id']))) {
+if (!isset($data) || (!isset($data['artistID']))) {
     http_response_code(400);
     echo json_encode([
         'status' => 'error',
-        'message' => 'Provide a valid user_id.',
+        'message' => 'Provide a valid artistID.',
     ]);
     exit;
 }
@@ -63,7 +63,7 @@ try {
 
     // Get user based on provided input
     $result = null;
-    $result = $handler->getCreatorArtistProfiles($data);
+    $result = $handler->getArtistDashboardMetrics($data);
 
 
     // Respond based on result

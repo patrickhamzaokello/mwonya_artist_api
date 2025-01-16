@@ -146,6 +146,77 @@ class Handler
         }
     }
 
+    public function getArtistDashboardMetrics($data){
+        $artistId = $data['artistID'];
+        $selected_metrics = isset($data['keyMetrics']) ? $data['keyMetrics'] : [];
+
+        $sql = "SELECT s.artist_id, s.total_plays, s.unique_listeners, s.average_daily_plays, s.engagement_score,s.peak_listening_hours, s.song_variety, s.repeat_play_rate, s.repeat_listener_ratio, s.new_listeners_growth, s.current_play_count, h.metric_type, h.old_value, h.new_value, h.changed_at FROM artist_statistics_summary s LEFT JOIN artist_statistics_history h ON s.artist_id = h.artist_id AND h.changed_at = (SELECT MAX(changed_at) FROM artist_statistics_history WHERE artist_id = s.artist_id AND metric_type = h.metric_type) WHERE s.artist_id = ?";
+        $stmt = $this->conn->prepare($sql);
+        if (!$stmt) {
+            throw new Exception("Failed to prepare statement: " . $this->conn->error);
+        }
+
+        $stmt->bind_param("s", $artistId);
+        $stmt->execute();
+
+        $rows = $stmt->get_result();
+        $response = [];
+
+        if ($rows->num_rows === 0) {
+            echo json_encode(["message" => "No data found for the specified artist."], JSON_PRETTY_PRINT);
+            return;
+        }
+        
+        // Fetch data and build the response
+        $response = [];
+        $metricsMap = [
+            'total_plays' => 'Total Plays (Last Updated)',
+            'unique_listeners' => 'Unique Listeners (Last Updated)',
+            'average_daily_plays' => 'Average Daily Plays (Last Updated)',
+            'engagement_score' => 'Engagement Score (Last Updated)',
+            'current_play_count' => 'Play Count (Last Updated)',
+            'peak_listening_hours'=> 'Peak Hours (Last Updated)',
+            'new_listeners_growth'=> 'Listeners Growth (Last Updated)',
+            'repeat_play_rate'=> 'Repeat Play Rate (Last Updated)',
+            'repeat_listener_ratio'=> 'Repeat Listener Ratio (Last Updated)',
+            'song_variety'=> 'Track Diversity (Last Updated)',
+
+        ];
+        
+        while ($row = $rows->fetch_assoc()) {
+            $metric = $row['metric_type'];
+            
+            if(empty($selected_metrics) || in_array($metric, $selected_metrics)){
+                $value = $row[$metric] ?? 0; // Default to 0 if value is null
+                $changeAmount = $row['new_value'] - $row['old_value'];
+                if ($row['old_value'] != 0) {
+                    $changePercentage = round(($changeAmount / $row['old_value']) * 100, 2);
+                } else {
+                    // If old_value is zero, set change percentage to 0 or handle it differently if needed
+                    $changePercentage = 0;
+                }
+                $trend = $changeAmount > 0 ? 'up' : ($changeAmount < 0 ? 'down' : 'neutral');
+                $lastUpdated = date('M j, Y', strtotime($row['changed_at']));
+            
+                $response[] = [
+                    'title' => $metricsMap[$metric],
+                    'value' => number_format($value),
+                    'change' => [
+                        'amount' => ($changeAmount >= 0 ? '+' : '') . number_format($changeAmount),
+                        'percentage' => ($changePercentage >= 0 ? '+' : '') . $changePercentage . '%'
+                    ],
+                    'lastUpdated' => $lastUpdated,
+                    'trend' => $trend
+                ];
+            }
+        }
+
+
+        $stmt->close();
+        return $response;
+
+    }
+
 
     public function getArtistTotalPlayTrend($data) {
         $artistId = $data['artistID'];
@@ -463,34 +534,104 @@ class Handler
     }
 
 
-    public function getCreatorArtistProfiles($user_id)
+    public function getTopArtistTracks($data) {
+        $artistID = isset($data['artistID']) ? $data['artistID'] : "";
+        try {
+
+            $query = "SELECT s.id AS song_id, s.title AS song_title, al.title AS album_name, al.artworkPath AS album_cover, g.name AS genre_name, a.name AS artist_name, SUM(f.plays) AS total_plays FROM songs s JOIN artists a ON s.artist = a.id JOIN albums al ON s.album = al.id JOIN genres g ON s.genre = g.id JOIN frequency f ON s.id = f.songid WHERE a.id = ? AND f.dateUpdated >= NOW() - INTERVAL 30 DAY GROUP BY s.id, s.title, al.title, al.artworkPath, g.name, a.name ORDER BY total_plays DESC LIMIT 5";
+
+  
+            $stmt = $this->conn->prepare($query);
+
+            if (!$stmt) {
+                throw new Exception("Failed to prepare statement: " . $this->conn->error);
+            }
+
+            // Bind the user_id parameter if the user is not an admin
+            $stmt->bind_param("s", $artistID);
+            $stmt->execute();
+
+            $result = $stmt->get_result();
+
+            // Fetch all results and map them to the desired structure
+            $artists = [];
+            while ($row = $result->fetch_assoc()) {
+                $artists[] = [
+                    'song_id' => $row['song_id'],
+                    'song_title' => $row['song_title'],
+                    'album_name' => $row['album_name'],
+                    'album_cover' => $row['album_cover'],
+                    'genre_name' => $row['genre_name'],
+                    'artist_name' => $row['artist_name'],
+                    'total_plays' => $row['total_plays'],
+                ];
+            }
+
+            $stmt->close();
+        
+
+            return $artists;
+            } catch (Exception $e) {
+                error_log("Database error in getCreatorArtistProfiles: " . $e->getMessage());
+                return null;
+            }
+    }
+
+
+    public function getCreatorArtistProfiles($data)
 {
+
+    $user_id = isset($data['user_id']) ? $data['user_id'] : "";
+    $userRole = isset($data['userRole']) ? $data['userRole'] : "";
+
     try {
         // SQL query to fetch required artist data with genre details
-        $query = "
-        SELECT 
-            a.id, 
-            a.name, 
-            g.id AS genre_id, 
-            g.name AS genre_name, 
-            a.bio AS biography, 
-            a.verified, 
-            a.profilephoto AS profile_image_url, 
-            a.coverimage AS cover_image_url
-        FROM 
-            Creator_Artist ca
-        INNER JOIN 
-            artists a 
-        ON 
-            ca.artist_id = a.id
-        LEFT JOIN 
-            genres g 
-        ON 
-            a.genre = g.id
-        WHERE 
-            ca.creator_id = ?
-        ORDER BY 
-            a.name ASC";
+        if ($userRole === 'admin') {
+            $query = "
+            SELECT 
+                a.id, 
+                a.name, 
+                g.id AS genre_id, 
+                g.name AS genre_name, 
+                a.bio AS biography, 
+                a.verified, 
+                a.profilephoto AS profile_image_url, 
+                a.coverimage AS cover_image_url
+            FROM 
+                artists a
+            LEFT JOIN 
+                genres g 
+            ON 
+                a.genre = g.id
+            ORDER BY 
+                a.name ASC";
+        } 
+        else {
+            $query = "
+            SELECT 
+                a.id, 
+                a.name, 
+                g.id AS genre_id, 
+                g.name AS genre_name, 
+                a.bio AS biography, 
+                a.verified, 
+                a.profilephoto AS profile_image_url, 
+                a.coverimage AS cover_image_url
+            FROM 
+                Creator_Artist ca
+            INNER JOIN 
+                artists a 
+            ON 
+                ca.artist_id = a.id
+            LEFT JOIN 
+                genres g 
+            ON 
+                a.genre = g.id
+            WHERE 
+                ca.creator_id = ?
+            ORDER BY 
+                a.name ASC";
+        }
     
         
         $stmt = $this->conn->prepare($query);
@@ -499,8 +640,10 @@ class Handler
             throw new Exception("Failed to prepare statement: " . $this->conn->error);
         }
 
-        // Bind the user_id parameter as an integer
-        $stmt->bind_param("i", $user_id);
+      // Bind the user_id parameter if the user is not an admin
+        if ($userRole !== 'admin') {
+            $stmt->bind_param("i", $user_id);
+        }
         $stmt->execute();
 
         $result = $stmt->get_result();
@@ -532,6 +675,102 @@ class Handler
         error_log("Database error in getCreatorArtistProfiles: " . $e->getMessage());
         return null;
     }
+}
+
+public function getArtistLiveData($data) {
+    $artistID = isset($data['artistID']) ? $data['artistID'] : "";
+    $isVerified = isset($data['isVerified']) ? $data['isVerified'] : "";
+
+    // Define revenue multiplier based on verification status
+    $revenueMultiplier = ($isVerified == 1 ? 0.008 : 0.006);
+
+    // Initialize response array
+    $response = [];
+
+    // Get total plays for the artist
+    $query = "SELECT SUM(tp.total_plays) as total_listeners FROM track_plays tp WHERE tp.songid IN (SELECT id FROM songs WHERE artist = ?)";
+    $stmt = $this->conn->prepare($query);
+    if (!$stmt) {
+        throw new Exception("Failed to prepare statement: " . $this->conn->error);
+    }
+    $stmt->bind_param("s", $artistID);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $total_plays = (int) $result->fetch_assoc()['total_listeners'];
+    $response['total_plays'] = $total_plays;
+    $stmt->close();
+
+    // Calculate total stream revenue
+    $revenue = round($total_plays * $revenueMultiplier);
+    $response['revenue'] = $revenue;
+
+
+    // Get total releases for the artist
+    $query = "SELECT COUNT(*) as total_releases FROM albums WHERE artist = ?";
+    $stmt = $this->conn->prepare($query);
+    $stmt->bind_param("s", $artistID);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $total_releases = $result->fetch_assoc()['total_releases'];
+    $response['total_releases'] = $total_releases;
+    $stmt->close();
+
+    // Get total tracks for the artist
+    $query = "SELECT COUNT(*) as total_tracks FROM songs WHERE artist = ?";
+    $stmt = $this->conn->prepare($query);
+    $stmt->bind_param("s", $artistID);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $total_tracks = $result->fetch_assoc()['total_tracks'];
+    $response['total_tracks'] = $total_tracks;
+    $stmt->close();
+
+    // Get total collection from artist circle subscription
+    $query = "SELECT SUM(pps.amount) AS total_circle_amount FROM pesapal_payment_status pps JOIN pesapal_transactions pt ON pps.merchant_reference = pt.merchant_reference WHERE pt.subscription_type_id = ? AND pps.status_code = 1";
+    $stmt = $this->conn->prepare($query);
+    $stmt->bind_param("s", $artistID);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $total_circle_amount = round($result->fetch_assoc()['total_circle_amount']);
+    $response['total_circle_amount'] = $total_circle_amount;
+    $stmt->close();
+
+     $response = [
+        [
+            'value' => $total_plays,
+            'label' => 'Total Streams',
+            'icon' => 'Music',
+            'color' => 'bg-purple-500'
+        ],
+        [
+            'value' => $revenue,
+            'label' => 'Stream Revenue',
+            'icon' => 'DollarSign',
+            'prefix' => 'Ugx',
+            'color' => 'bg-blue-500'
+        ],
+        [
+            'value' => $total_circle_amount,
+            'label' => 'Artist Circle',
+            'icon' => 'Users',
+            'prefix' => 'Ugx',
+            'color' => 'bg-pink-500'
+        ],
+        [
+            'value' => $total_releases,
+            'label' => 'Releases',
+            'icon' => 'Disc',
+            'color' => 'bg-orange-500'
+        ],
+        [
+            'value' => $total_tracks,
+            'label' => 'Tracks',
+            'icon' => 'Music2',
+            'color' => 'bg-green-500'
+        ]
+    ];
+
+    return $response;
 }
 
 public function getArtistDiscovery($artist_id)
