@@ -843,6 +843,62 @@ public function getArtistDiscovery($artist_id)
     }
 }
 
+public function createNewRelease($releaseDetails){
+    try {
+        // Begin a transaction
+        $this->conn->begin_transaction();
+
+        // Insert into albums table
+        $albumQuery = "
+            INSERT INTO albums 
+                (`id`, `title`, `artist`, `genre`, `exclusive`, `tag`, `description`, `datecreated`, `releaseDate`, `AES_code`) 
+            VALUES 
+                (?, ?, ?, ?,?, ?, ?, NOW(), ?, ?)";  // Available set to 0 by default
+        
+        $albumStmt = $this->conn->prepare($albumQuery);
+        
+        if (!$albumStmt) {
+            throw new Exception("Failed to prepare album statement: " . $this->conn->error);
+        }
+
+
+        $albumStmt->bind_param(
+            "ssssissss",
+            $releaseDetails['releaseID'],
+            $releaseDetails['release_title'],
+            $releaseDetails['artist'],
+            $releaseDetails['genre'],
+            $releaseDetails['exclusive'],
+            $releaseDetails['releaseType'],
+            $releaseDetails['description'],
+            $releaseDetails['releaseDate'],
+            $releaseDetails['aesCode'],  // AES_code specifies whether it's a single, album, or EP
+        );
+
+        if (!$albumStmt->execute()) {
+            throw new Exception("Failed to execute album query: " . $albumStmt->error);
+        }
+
+        // Commit the transaction
+        $this->conn->commit();
+
+        return [
+            'success' => true,
+            'message' => 'New Release added successfully',
+            'releaseID' =>  $releaseDetails['releaseID']
+        ];
+
+    } catch (Exception $e) {
+        // Rollback the transaction in case of an error
+        $this->conn->rollback();
+        error_log("Database error in new release: " . $e->getMessage());
+        return [
+            'success' => false,
+            'message' => "Database error in new release: " . $e->getMessage()
+        ];
+    }
+}
+
 
 public function addSingleTrackWithAlbum($trackDetails)
 {
