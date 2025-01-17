@@ -851,9 +851,9 @@ public function createNewRelease($releaseDetails){
         // Insert into albums table
         $albumQuery = "
             INSERT INTO albums 
-                (`id`, `title`, `artist`, `genre`, `exclusive`, `tag`, `description`, `datecreated`, `releaseDate`, `AES_code`) 
+                (`id`, `title`, `artist`, `genre`, `exclusive`, `tag`, `tags`, `description`, `datecreated`, `releaseDate`, `AES_code`) 
             VALUES 
-                (?, ?, ?, ?,?, ?, ?, NOW(), ?, ?)";  // Available set to 0 by default
+                (?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, ?)";  // Available set to 0 by default
         
         $albumStmt = $this->conn->prepare($albumQuery);
         
@@ -863,13 +863,14 @@ public function createNewRelease($releaseDetails){
 
 
         $albumStmt->bind_param(
-            "ssssissss",
+            "ssssisssss",
             $releaseDetails['releaseID'],
             $releaseDetails['release_title'],
             $releaseDetails['artist'],
             $releaseDetails['genre'],
             $releaseDetails['exclusive'],
             $releaseDetails['releaseType'],
+            $releaseDetails['tags'],
             $releaseDetails['description'],
             $releaseDetails['releaseDate'],
             $releaseDetails['aesCode'],  // AES_code specifies whether it's a single, album, or EP
