@@ -843,6 +843,257 @@ public function getArtistDiscovery($artist_id)
     }
 }
 
+public function insertOrUpdateTrack($trackDetails) {
+    try {
+        // Begin a transaction
+        $this->conn->begin_transaction();
+
+        // Check if the track with the provided reference_id already exists
+        $trackCheckQuery = "SELECT `id` FROM `songs` WHERE `reference` = ?";
+        $trackCheckStmt = $this->conn->prepare($trackCheckQuery);
+
+        if (!$trackCheckStmt) {
+            throw new Exception("Failed to prepare track check statement: " . $this->conn->error);
+        }
+
+        $trackCheckStmt->bind_param("s", $trackDetails['reference_id']);
+        $trackCheckStmt->execute();
+        $trackCheckStmt->store_result();
+
+        if ($trackCheckStmt->num_rows > 0) {
+            // Track exists, update the existing record
+            $updateQuery = "
+                UPDATE `songs`
+                SET 
+                    `title` = ?, 
+                    `artist` = ?, 
+                    `album` = ?, 
+                    `genre` = ?, 
+                    `upload_id` = ?, 
+                    `duration` = ?, 
+                    `tag` = ?, 
+                    `meta_data` = ?, 
+                    `releaseDate` = ?, 
+                    `updated_at` = NOW()
+                WHERE `reference` = ?";
+
+            $updateStmt = $this->conn->prepare($updateQuery);
+
+            if (!$updateStmt) {
+                throw new Exception("Failed to prepare update statement: " . $this->conn->error);
+            }
+
+            $updateStmt->bind_param(
+                "ssssssssss",
+                $trackDetails['title'],
+                $trackDetails['artist'],
+                $trackDetails['album'],
+                $trackDetails['genre'],
+                $trackDetails['upload_id'],
+                $trackDetails['duration'],
+                $trackDetails['tag'],
+                $trackDetails['metadata'],
+                $trackDetails['releasedate'],
+                $trackDetails['reference_id']
+            );
+
+            if (!$updateStmt->execute()) {
+                throw new Exception("Failed to update track: " . $updateStmt->error);
+            }
+
+            $message = "Track updated successfully.";
+        } else {
+            // Track does not exist, insert a new record
+            $insertQuery = "
+                INSERT INTO `songs` 
+                    (`reference`, `title`, `artist`, `album`, `genre`, `upload_id`, `duration`, `tag`, `meta_data`, `releaseDate`, `dateAdded`) 
+                VALUES 
+                    (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())";
+
+            $insertStmt = $this->conn->prepare($insertQuery);
+
+            if (!$insertStmt) {
+                throw new Exception("Failed to prepare insert statement: " . $this->conn->error);
+            }
+
+            $insertStmt->bind_param(
+                "sssssissss",
+                $trackDetails['reference_id'],
+                $trackDetails['title'],
+                $trackDetails['artist'],
+                $trackDetails['album'],
+                $trackDetails['genre'],
+                $trackDetails['upload_id'],
+                $trackDetails['duration'],
+                $trackDetails['tag'],
+                $trackDetails['metadata'],
+                $trackDetails['releasedate']
+            );
+
+            if (!$insertStmt->execute()) {
+                throw new Exception("Failed to insert track: " . $insertStmt->error);
+            }
+
+            $message = "Track inserted successfully.";
+        }
+
+
+        // Update the uploads table to set the status to 'completed'
+        $updateUploadsQuery = "UPDATE `Uploads` SET `upload_status` = 'completed', `is_active`=1 WHERE `upload_id` = ?";
+        $updateUploadsStmt = $this->conn->prepare($updateUploadsQuery);
+
+        if (!$updateUploadsStmt) {
+            throw new Exception("Failed to prepare uploads update statement: " . $this->conn->error);
+        }
+
+        $updateUploadsStmt->bind_param("i", $trackDetails['upload_id']);
+
+        if (!$updateUploadsStmt->execute()) {
+            throw new Exception("Failed to update uploads status: " . $updateUploadsStmt->error);
+        }
+
+
+        // Commit the transaction
+        $this->conn->commit();
+
+        return [
+            'success' => true,
+            'message' => $message,
+            'reference_id' => $trackDetails['reference_id']
+        ];
+
+    } catch (Exception $e) {
+        // Rollback the transaction in case of an error
+        $this->conn->rollback();
+        error_log("Database error in insert or update track: " . $e->getMessage());
+        return [
+            'success' => false,
+            'message' => $e->getMessage()
+        ];
+    }
+}
+
+
+public function saveMediaUpload($uploadDetails){
+    try {
+        // Begin a transaction
+        $this->conn->begin_transaction();
+
+        // Check if the file hash already exists
+        $checkQuery = "
+            SELECT `upload_id` 
+            FROM `Uploads` 
+           WHERE `file_hash` = ? AND `upload_status` = 'completed'";
+        $checkStmt = $this->conn->prepare($checkQuery);
+
+        if (!$checkStmt) {
+            throw new Exception("Failed to prepare hash check statement: " . $this->conn->error);
+        }
+
+        $checkStmt->bind_param("s", $uploadDetails['file_hash']);
+
+        if (!$checkStmt->execute()) {
+            throw new Exception("Failed to execute hash check query: " . $checkStmt->error);
+        }
+
+        $result = $checkStmt->get_result();
+        if ($result->num_rows > 0) {
+            $existing = $result->fetch_assoc();
+            throw new Exception("Duplicate file detected with ID: " . $existing['upload_id']);
+        }
+
+        // Check if a pending record exists for the same hash
+        $pendingQuery = "
+            SELECT `upload_id` 
+            FROM `Uploads` 
+            WHERE `file_hash` = ? AND `upload_status` = 'pending'";
+        $pendingStmt = $this->conn->prepare($pendingQuery);
+        $pendingStmt->bind_param("s", $uploadDetails['file_hash']);
+        $pendingStmt->execute();
+        $pendingResult = $pendingStmt->get_result();
+
+        if ($pendingResult->num_rows > 0) {
+            // Update the existing pending record
+            $existing = $pendingResult->fetch_assoc();
+            $updateQuery = "
+                UPDATE `Uploads` 
+                SET `file_path` = ?, `file_name` = ?, `file_size` = ?, `file_format` = ?, `metadata` = ?, `is_active` = ?, `date_updated` = NOW()  WHERE `upload_id` = ?";
+            $updateStmt = $this->conn->prepare($updateQuery);
+            $updateStmt->bind_param(
+                "ssissii",
+                $uploadDetails['file_path'],
+                $uploadDetails['file_name'],
+                $uploadDetails['file_size'],
+                $uploadDetails['file_format'],
+                $uploadDetails['metadata'],
+                $uploadDetails['is_active'],
+                $existing['upload_id']
+            );
+
+            if (!$updateStmt->execute()) {
+                throw new Exception("Failed to update pending upload: " . $updateStmt->error);
+            }
+
+            $this->conn->commit();
+
+            return [
+                'success' => true,
+                'message' => 'Pending upload record updated successfully',
+                'upload_id' => $existing['upload_id']
+            ];
+        } else {
+            // Insert a new record
+            $insertQuery = "
+                INSERT INTO Uploads 
+                    (`user_id`, `upload_type`, `file_path`, `file_name`, `file_size`, `file_format`, `metadata`, `file_hash`, `uploaded_at`, `is_active`, `upload_status`) 
+                VALUES 
+                    (?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, 'pending')";
+            $insertStmt = $this->conn->prepare($insertQuery);
+
+            if (!$insertStmt) {
+                throw new Exception("Failed to prepare upload insert statement: " . $this->conn->error);
+            }
+
+            $insertStmt->bind_param(
+                "ssssisssi",
+                $uploadDetails['user_id'],
+                $uploadDetails['upload_type'],
+                $uploadDetails['file_path'],
+                $uploadDetails['file_name'],
+                $uploadDetails['file_size'],
+                $uploadDetails['file_format'],
+                $uploadDetails['metadata'],
+                $uploadDetails['file_hash'],
+                $uploadDetails['is_active']
+            );
+
+            if (!$insertStmt->execute()) {
+                throw new Exception("Failed to execute upload insert query: " . $insertStmt->error);
+            }
+
+            $lastInsertId = $this->conn->insert_id;
+
+            $this->conn->commit();
+
+            return [
+                'success' => true,
+                'message' => 'Upload added successfully',
+                'upload_id' => $lastInsertId
+            ];
+        }
+    } catch (Exception $e) {
+        // Rollback the transaction in case of an error
+        $this->conn->rollback();
+        error_log("Database error in upload insert: " . $e->getMessage());
+        return [
+            'success' => false,
+            'message' =>  $e->getMessage()
+        ];
+    }
+}
+
+
+
 public function createNewRelease($releaseDetails){
     try {
         // Begin a transaction
