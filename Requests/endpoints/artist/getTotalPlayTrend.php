@@ -77,7 +77,7 @@ try {
         http_response_code(404);
         echo json_encode([
             'status' => 'error',
-            'message' => 'User not found.',
+            'message' => 'Data not found.',
         ]);
     }
 } catch (Exception $e) {

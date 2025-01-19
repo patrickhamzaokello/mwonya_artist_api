@@ -220,39 +220,53 @@ class Handler
 
     public function getArtistTotalPlayTrend($data) {
         $artistId = $data['artistID'];
-        $year = isset($data['year']) ? $data['year'] : date('Y');
-
+    
+        // Set the default rolling period to 12 months if not specified
+        $months = isset($data['months']) ? (int)$data['months'] : 12;
+    
+        // Validate the rolling period to ensure it's a positive number
+        if ($months <= 0) {
+            throw new Exception("Rolling period must be a positive number.");
+        }
+    
+        // Load JSON data
         $jsonData = file_get_contents('/var/www/html/artistapi.mwonya.com/development/Includes/generated_json_data/artist_trends.json');
         $data = json_decode($jsonData, true);
-        $filteredData = [];
-
     
-        // Filter data by artist ID and year
-        foreach ($data as $record) {
-            if ($record['id'] == $artistId && substr($record['month'], 0, 4) == $year) {
-                $filteredData[] = $record;
+        // Filter data by artist ID
+        $filteredData = array_filter($data, function($record) use ($artistId) {
+            return $record['id'] == $artistId;
+        });
+    
+        // Create a lookup table for the specified rolling period (earliest to most recent)
+        $currentMonth = new DateTime('now');
+        $monthLookup = [];
+        for ($i = $months - 1; $i >= 0; $i--) {
+            $monthKey = $currentMonth->format('Y-m');
+            $monthLookup[$monthKey] = [
+                'name' => $currentMonth->format('M Y'),
+                'total' => 0
+            ];
+            $currentMonth->modify('-1 month');
+        }
+    
+        // Reverse the lookup table to ensure chronological order
+        $monthLookup = array_reverse($monthLookup, true);
+    
+        // Merge with available data
+        foreach ($filteredData as $record) {
+            $monthKey = $record['month'];
+            if (isset($monthLookup[$monthKey])) {
+                $monthLookup[$monthKey]['total'] = round($record['total_plays_pct_change']);
             }
         }
     
-        // Sort the filtered data by month
-        usort($filteredData, function($a, $b) {
-            return strcmp($a['month'], $b['month']);
-        });
-    
-        // Prepare result with month and total plays
-        $result = [];
-        foreach ($filteredData as $record) {
-            $date = DateTime::createFromFormat('Y-m', $record['month']);
-            $formattedMonth = $date->format('M');
-            $result[] = [
-                'name' => $formattedMonth,
-                'total' => round($record['total_plays_pct_change'])
-            ];
-        }
-    
-        return $result;
-    
+        // Return the processed data as an array
+        return array_values($monthLookup);
     }
+    
+
+    
     public function createVerificationToken($data){
         #get the  email, token, expires
         $email = $data['email'];
