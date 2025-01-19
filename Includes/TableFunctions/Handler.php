@@ -1253,9 +1253,15 @@ public function getContentDetailsByID($content_id)
             SELECT 
                 al.id AS content_id,
                 al.title,
+                al.artist as artist_id,
+                al.genre as genre_id,
                 a.name AS artist,
+                al.tag as releasetype,
+                al.tags as attached_tags,
                 al.artworkPath AS imageUrl,
-                g.name AS category,
+                g.name AS genre_name,
+                al.exclusive,
+                al.available,
                 al.description,
                 al.releaseDate
             FROM 
@@ -1287,14 +1293,16 @@ public function getContentDetailsByID($content_id)
 
         // SQL query to fetch tracks for the album
         $tracksQuery = "
-            SELECT 
-                title,
-                duration,
-                path as trackFilePath
+           SELECT 
+                s.title,
+                s.duration,
+                u.file_path AS trackFilePath
             FROM 
-                songs
+                songs AS s
+            INNER JOIN 
+                Uploads AS u ON s.upload_id = u.upload_id
             WHERE 
-                album = ?";
+                s.album = ?";
         
         $tracksStmt = $this->conn->prepare($tracksQuery);
 
@@ -1318,7 +1326,6 @@ public function getContentDetailsByID($content_id)
         }
 
         $tracksStmt->close();
-
 
 
         // Add duration calculation
@@ -1350,11 +1357,17 @@ public function getContentDetailsByID($content_id)
         return [
             'content_id' => $album['content_id'],
             'title' => $album['title'],
-            'artist' => $album['artist'] ?? 'Various Artists',
+            'artist' => $album['artist'] ?? 'Unknown',
+            'artist_id' => $album['artist_id'],
+            'genre_id' => $album['genre_id'],
             'imageUrl' => $album['imageUrl'],
-            'category' => $album['category'] ?? 'Unknown',
+            'releasetype' => $album['releasetype'],
+            'genre_name' => $album['genre_name'] ?? 'Unknown',
             'description' => $album['description'] ?? 'No description available.',
             'releaseDate' => $album['releaseDate'],
+            'tags' => $album['attached_tags'] ?? null,
+            'exclusive' => $album['exclusive'] ? true : false,
+            'available' => $album['available'] ? true : false,
             'duration' => $totalDuration ?? '0h 0m',
             'tracks' => $tracks
         ];
