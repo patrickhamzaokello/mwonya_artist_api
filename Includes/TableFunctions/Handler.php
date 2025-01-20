@@ -257,12 +257,37 @@ class Handler
         foreach ($filteredData as $record) {
             $monthKey = $record['month'];
             if (isset($monthLookup[$monthKey])) {
-                $monthLookup[$monthKey]['total'] = round($record['total_plays_pct_change']);
+                $monthLookup[$monthKey]['total'] = round($record['total_plays']);
             }
         }
     
         // Return the processed data as an array
         return array_values($monthLookup);
+    }
+
+
+
+    public function Creator_artistExists($creator_ID) {
+    
+        if (!$creator_ID) {
+            throw new Exception("creator_id must be provided.");
+        }
+    
+        // Prepare the query based on the provided parameter
+        $query = "SELECT 1 FROM Creator_Artist WHERE creator_id = ?";
+        $stmt = $this->conn->prepare($query);
+        if (!$stmt) {
+            throw new Exception("Failed to prepare statement: " . $this->conn->error);
+        }
+    
+        $stmt->bind_param("s", $creator_ID);
+        $stmt->execute();
+        $result = $stmt->get_result();
+    
+        $exists = $result->num_rows > 0;
+        $stmt->close();
+    
+        return $exists;
     }
     
 
@@ -786,6 +811,89 @@ public function getArtistLiveData($data) {
 
     return $response;
 }
+
+public function getArtistLastRelease($artist_id) {
+    // Get the last release album
+    $query = "SELECT a.`id`, a.`title`, a.`artist`, ar.name AS artistName, a.artworkPath, a.`genre`, a.`releaseDate`, a.`exclusive` 
+              FROM `albums` a 
+              JOIN `artists` ar ON a.`artist` = ar.`id` 
+              WHERE a.`artist` = ? AND a.`available` = 1 AND a.`releaseDate` IS NOT NULL 
+              ORDER BY a.`releaseDate` DESC 
+              LIMIT 1";
+              
+    $stmt = $this->conn->prepare($query);
+
+    if (!$stmt) {
+        throw new Exception("Failed to prepare statement: " . $this->conn->error);
+    }
+
+    $stmt->bind_param("s", $artist_id);
+    $stmt->execute();
+
+    $result = $stmt->get_result();
+    $album = $result->fetch_assoc();
+
+    if (!$album) {
+        return null; // No album found for the artist
+    }
+
+    $album_id = $album['id'];
+
+    // Track Performance for Songs in the Latest Album
+    $track_query = "SELECT 
+                        s.`title` AS songTitle,
+                        SUM(f.`plays`) AS totalPlays,
+                        COUNT(DISTINCT f.`userid`) AS uniqueListeners,
+                        AVG(f.`listened_duration`) AS avgListenDuration
+                    FROM `songs` s
+                    LEFT JOIN `frequency` f ON s.`id` = f.`songid`
+                    WHERE s.`album` = ?
+                    GROUP BY s.`id`";
+                    
+    $track_stmt = $this->conn->prepare($track_query);
+
+    if (!$track_stmt) {
+        throw new Exception("Failed to prepare track statement: " . $this->conn->error);
+    }
+
+    $track_stmt->bind_param("s", $album_id);
+    $track_stmt->execute();
+
+    $track_result = $track_stmt->get_result();
+    $tracks = [];
+
+    while ($track = $track_result->fetch_assoc()) {
+        $tracks[] = $track;
+    }
+
+    // Total Album Performance
+    $album_query = "SELECT 
+                        SUM(f.`plays`) AS albumTotalPlays,
+                        COUNT(DISTINCT f.`userid`) AS albumUniqueListeners,
+                        AVG(f.`listened_duration`) AS avgListenDurationPerTrack
+                    FROM `songs` s
+                    LEFT JOIN `frequency` f ON s.`id` = f.`songid`
+                    WHERE s.`album` = ?";
+                    
+    $album_stmt = $this->conn->prepare($album_query);
+
+    if (!$album_stmt) {
+        throw new Exception("Failed to prepare album performance statement: " . $this->conn->error);
+    }
+
+    $album_stmt->bind_param("s", $album_id);
+    $album_stmt->execute();
+
+    $album_performance = $album_stmt->get_result()->fetch_assoc();
+
+    // Combine data into a single array for return
+    $album['tracks'] = $tracks;
+    $album['performance'] = $album_performance;
+
+    return $album;
+}
+
+
 
 public function getArtistDiscovery($artist_id)
 {
