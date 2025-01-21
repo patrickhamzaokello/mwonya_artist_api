@@ -964,6 +964,199 @@ public function getArtistDiscovery($artist_id)
         return null;
     }
 }
+public function updateArtistProfileImage($artistId,  $imageType,$mediaId, $creator_id) {
+    try {
+        // Validate input
+        if (empty($artistId) || empty($mediaId) || !in_array($imageType, ['profile', 'cover'])) {
+            throw new Exception("Invalid input: artist Id, media Id, or image Type is missing or invalid.");
+        }
+
+        // Begin transaction
+        $this->conn->begin_transaction();
+
+          // Check if the artist exists
+          $artistCheckQuery = "SELECT `id` FROM `artists` WHERE `id` = ?";
+          $artistCheckStmt = $this->conn->prepare($artistCheckQuery);
+  
+          if (!$artistCheckStmt) {
+              throw new Exception("Failed to prepare artist check statement: " . $this->conn->error);
+          }
+  
+          $artistCheckStmt->bind_param("s", $artistId);
+          $artistCheckStmt->execute();
+          $artistCheckStmt->store_result();
+  
+          if ($artistCheckStmt->num_rows === 0) {
+              throw new Exception("Artist with ID '$artistId' does not exist.");
+          }
+
+
+          // check if creator is the one who uploaded the media
+        $mediaCheckQuery = "SELECT `upload_id` FROM `Uploads` WHERE `upload_id` = ? and `user_id` = ?";
+        $mediaCheckStmt = $this->conn->prepare($mediaCheckQuery);
+
+        if (!$artistCheckStmt) {
+            throw new Exception("Failed to prepare artist check statement: " . $this->conn->error);
+        }
+
+        $mediaCheckStmt->bind_param("ii", $mediaId, $creator_id);
+        $mediaCheckStmt->execute();
+        $mediaCheckStmt->store_result();
+
+        if ($mediaCheckStmt->num_rows === 0) {
+            throw new Exception("This User is not the owner of this media");
+        }
+
+        // Determine the column to update based on image type
+        $columnToUpdate = $imageType === 'profile' ? 'profile_image_id' : 'cover_image_id';
+
+        // Update the artist record
+        $updateQuery = "UPDATE `artists` SET `$columnToUpdate` = ?, `lastupdate` = NOW() WHERE `id` = ?";
+        $updateStmt = $this->conn->prepare($updateQuery);
+
+        if (!$updateStmt) {
+            throw new Exception("Failed to prepare update statement: " . $this->conn->error);
+        }
+
+        $updateStmt->bind_param("ss", $mediaId, $artistId);
+
+        if (!$updateStmt->execute()) {
+            throw new Exception("Failed to update artist image: " . $updateStmt->error);
+        }
+
+          // Update the uploads table to set the status to 'completed'
+          $updateUploadsQuery = "UPDATE `Uploads` SET `upload_status` = 'completed', `is_active`=1 WHERE `upload_id` = ?";
+          $updateUploadsStmt = $this->conn->prepare($updateUploadsQuery);
+  
+          if (!$updateUploadsStmt) {
+              throw new Exception("Failed to prepare uploads update statement: " . $this->conn->error);
+          }
+  
+          $updateUploadsStmt->bind_param("i", $mediaId);
+  
+          if (!$updateUploadsStmt->execute()) {
+              throw new Exception("Failed to update uploads status: " . $updateUploadsStmt->error);
+          }
+
+
+        // Commit the transaction
+        $this->conn->commit();
+
+        // Close the statement
+        $updateStmt->close();
+
+        return [
+            'success' => true,
+            'message' => ucfirst($imageType) . " image updated successfully."
+        ];
+    } catch (Exception $e) {
+        // Rollback the transaction in case of an error
+        $this->conn->rollback();
+        error_log("Error updating artist profile image: " . $e->getMessage());
+
+        return [
+            'success' => false,
+            'message' => $e->getMessage()
+        ];
+    }
+}
+
+
+public function createNewArtistProfile($artistDetails) {
+    try {
+        // Begin a transaction
+        $this->conn->begin_transaction();
+
+        // Check if the artist with the provided reference_id already exists
+        $artistCheckQuery = "SELECT `id` FROM `artists` WHERE `id` = ?";
+        $artistCheckStmt = $this->conn->prepare($artistCheckQuery);
+
+        if (!$artistCheckStmt) {
+            throw new Exception("Failed to prepare track check statement: " . $this->conn->error);
+        }
+
+        $artistCheckStmt->bind_param("s", $artistDetails['artistID']);
+        $artistCheckStmt->execute();
+        $artistCheckStmt->store_result();
+
+        if ($artistCheckStmt->num_rows > 0) {
+            $message = "Artist with ID already exists.";
+        } else {
+            // Track does not exist, insert a new record
+            $insertQuery = "
+                INSERT INTO `artists` 
+                    (`id`, `name`, `email`, `phone`, `genre`, `facebookurl`, `twitterurl`, `instagramurl`,  `youtubeurl`, `meta_data`, `RecordLable`, `isIndependent`, `datecreated`) 
+                VALUES 
+                    (?,?,?,?,?,?,?,?,?,?,?,?,NOW())";
+
+            $artistDetailsJson = json_encode($artistDetails);
+            $insertStmt = $this->conn->prepare($insertQuery);
+
+            if (!$insertStmt) {
+                throw new Exception("Failed to prepare insert statement: " . $this->conn->error);
+            }
+
+            $insertStmt->bind_param(
+                "ssssisssssss",
+                $artistDetails['artistID'],
+                $artistDetails['artistName'],
+                $artistDetails['artistEmail'],
+                $artistDetails['artistPhoneNumber'],
+                $artistDetails['artistGenre'],
+                $artistDetails['socialLinks']['facebook'],
+                $artistDetails['socialLinks']['twitter'],
+                $artistDetails['socialLinks']['instagram'],
+                $artistDetails['socialLinks']['youtube'],
+                $artistDetailsJson,
+                $artistDetails['artistlabelName'],
+                $artistDetails['artistIsIndependent'],
+
+            );
+
+            if (!$insertStmt->execute()) {
+                throw new Exception("Failed to insert track: " . $insertStmt->error);
+            }
+
+            $message = "Artist Created successfully.";
+
+
+            // Link artist profile to creator
+          // Update the uploads table to set the status to 'completed'
+          $artist_linking_query = "INSERT INTO `Creator_Artist`(`creator_id`, `artist_id`, `access_type`, `date_created`) VALUES  (? , ?  ,'owner' , NOW())";
+          $linkArtistCreator = $this->conn->prepare($artist_linking_query);
+  
+          if (!$linkArtistCreator) {
+              throw new Exception("Failed to prepare uploads update statement: " . $this->conn->error);
+          }
+  
+          $linkArtistCreator->bind_param("is", $artistDetails['current_userId'],$artistDetails['artistID']);
+  
+          if (!$linkArtistCreator->execute()) {
+              throw new Exception("Failed to link new artist to creator: " . $linkArtistCreator->error);
+          }
+
+        }
+
+        
+        // Commit the transaction
+        $this->conn->commit();
+
+        return [
+            'success' => true,
+            'message' => $message,
+            'artist_id' => $artistDetails['artistID']
+        ];
+
+    } catch (Exception $e) {
+        // Rollback the transaction in case of an error
+        $this->conn->rollback();
+        error_log("Database error in insert artist: " . $e->getMessage());
+        return [
+            'success' => false,
+            'message' => $e->getMessage()
+        ];
+    }
+}
 
 public function insertOrUpdateTrack($trackDetails) {
     try {
