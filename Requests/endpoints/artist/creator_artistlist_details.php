@@ -48,11 +48,11 @@ if (!isset($db) || empty($db)) {
 // Parse input JSON
 $data = json_decode(file_get_contents("php://input"), true);
 
-if (!isset($data) || (!isset($data['artist_id']))) {
+if (!isset($data) || (!isset($data['creatorID']) ||!isset($data['creatorRole']) )) {
     http_response_code(400);
     echo json_encode([
         'status' => 'error',
-        'message' => 'Provide a valid artist_id.',
+        'message' => 'Provide a valid creatorID.',
     ]);
     exit;
 }
@@ -63,15 +63,23 @@ try {
 
     // Get user based on provided input
     $result = null;
-    $result = $handler->getArtistDiscovery($data['artist_id']);
+    $result = $handler->listCreatorArtistProfiles($data);
 
 
     // Respond based on result
-    http_response_code(200);
-    echo json_encode([
-        'status' => 'success',
-        'data' => $result,
-    ]);
+    if ($result) {
+        http_response_code(200);
+        echo json_encode([
+            'status' => 'success',
+            'data' => $result,
+        ]);
+    } else {
+        http_response_code(404);
+        echo json_encode([
+            'status' => 'error',
+            'message' => 'User not found.',
+        ]);
+    }
 } catch (Exception $e) {
     http_response_code(500);
     echo json_encode([

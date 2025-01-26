@@ -48,11 +48,11 @@ if (!isset($db) || empty($db)) {
 // Parse input JSON
 $data = json_decode(file_get_contents("php://input"), true);
 
-if (!isset($data) || (!isset($data['artist_id']))) {
+if (!isset($data) || (!isset($data['query']))) {
     http_response_code(400);
     echo json_encode([
         'status' => 'error',
-        'message' => 'Provide a valid artist_id.',
+        'message' => 'Provide a valid query.',
     ]);
     exit;
 }
@@ -63,15 +63,16 @@ try {
 
     // Get user based on provided input
     $result = null;
-    $result = $handler->getArtistDiscovery($data['artist_id']);
+    $result = $handler->getArtistQuery($data['query']);
 
 
     // Respond based on result
-    http_response_code(200);
-    echo json_encode([
-        'status' => 'success',
-        'data' => $result,
-    ]);
+        http_response_code(200);
+        echo json_encode([
+            'status' => 'success',
+            'data' => $result,
+        ]);
+    
 } catch (Exception $e) {
     http_response_code(500);
     echo json_encode([

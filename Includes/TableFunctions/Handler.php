@@ -617,6 +617,142 @@ class Handler
     }
 
 
+    public function listCreatorArtistProfiles($data) {
+
+        $user_id = isset($data['creatorID']) ? $data['creatorID'] : "";
+        $userRole = isset($data['creatorRole']) ? $data['creatorRole'] : "";
+        try {
+            // Validate input
+            if (empty($user_id) || empty($userRole)) {
+                throw new Exception("Invalid input.");
+            }
+    
+            // Begin transaction
+            $this->conn->begin_transaction();
+    
+              // Check if the creator exists
+              $creatorCheckQuery = "SELECT `id` FROM `MwonyaCreators` WHERE `role`=? and `id` = ?";
+              $creatorCheckStmt = $this->conn->prepare($creatorCheckQuery);
+      
+              if (!$creatorCheckStmt) {
+                  throw new Exception("Failed to prepare artist check statement: " . $this->conn->error);
+              }
+      
+              $creatorCheckStmt->bind_param("ss", $userRole, $user_id);
+              $creatorCheckStmt->execute();
+              $creatorCheckStmt->store_result();
+      
+              if ($creatorCheckStmt->num_rows === 0) {
+                  throw new Exception("Creator  does not exist.");
+              }
+    
+    
+              if ($userRole === 'admin') {
+                $query = "
+               SELECT a.id, a.name, g.name AS genre_name, a.bio AS biography, a.verified, pf.file_path AS profile_image_url, cf.file_path AS cover_image_url, a.facebookurl AS facebook_url, a.twitterurl AS twitter_url, a.instagramurl AS instagram_url, a.youtubeurl AS youtube_url FROM artists a LEFT JOIN genres g ON a.genre = g.id LEFT JOIN Uploads pf ON a.profile_image_id = pf.upload_id LEFT JOIN Uploads cf ON a.cover_image_id = cf.upload_id ORDER BY a.datecreated DESC";
+            } 
+            else {
+                $query = "
+               SELECT a.id, a.name, g.name AS genre_name, a.bio AS biography, a.verified, pf.file_path AS profile_image_url, cf.file_path AS cover_image_url, a.facebookurl AS facebook_url, a.twitterurl AS twitter_url, a.instagramurl AS instagram_url, a.youtubeurl AS youtube_url FROM artists a LEFT JOIN genres g ON a.genre = g.id LEFT JOIN Uploads pf ON a.profile_image_id = pf.upload_id LEFT JOIN Uploads cf ON a.cover_image_id = cf.upload_id JOIN Creator_Artist ca on a.id = ca.artist_id WHERE ca.creator_id = ? ORDER BY a.datecreated DESC"; 
+            }
+        
+            
+            $stmt = $this->conn->prepare($query);
+    
+            if (!$stmt) {
+                throw new Exception("Failed to prepare statement: " . $this->conn->error);
+            }
+    
+          // Bind the user_id parameter if the user is not an admin
+            if ($userRole !== 'admin') {
+                $stmt->bind_param("i", $user_id);
+            }
+            $stmt->execute();
+    
+            $result = $stmt->get_result();
+    
+            // Fetch all results and map them to the desired structure
+            $artists = [];
+            while ($row = $result->fetch_assoc()) {
+                $artists[] = [
+                    'id' => $row['id'],
+                    'name' => $row['name'],
+                    'biography' => $row['biography'] ?? "",
+                    'verified' => $row['verified'] ? true : null,
+                    'genre' => $row['genre_name'] ?? "",
+                    'profileImage' => $row['profile_image_url'] ?? "",
+                    'coverImage' => $row['cover_image_url'] ?? "",
+                    'socialLinks' =>  [
+                        'facebook_url' => $row['facebook_url']?? "",
+                        'twitter_url' => $row['twitter_url']?? "",
+                        'instagram_url' => $row['instagram_url']?? "",
+                        'youtube_url' => $row['youtube_url ']?? ""
+                    ],
+                   
+                ];
+            }
+    
+            $stmt->close();
+            return $artists; // Return an array of artist objects
+        } catch (Exception $e) {
+            // Rollback the transaction in case of an error
+            $this->conn->rollback();
+            error_log("Error updating artist profile image: " . $e->getMessage());
+    
+            return [
+                'success' => false,
+                'message' => $e->getMessage()
+            ];
+        }
+    }
+
+
+
+
+    public function getArtistQuery($search_query)
+{
+    if (!$search_query) {
+        throw new Exception("Query must be provided.");
+    }
+
+    try {
+        $query = "SELECT a.id, a.name, u.file_path AS imageUrl 
+                  FROM `artists` a 
+                  JOIN Uploads u ON u.upload_id = a.profile_image_id 
+                  WHERE a.available = 1 AND a.name LIKE ?";
+
+        $stmt = $this->conn->prepare($query);
+
+        if (!$stmt) {
+            throw new Exception("Failed to prepare statement: " . $this->conn->error);
+        }
+
+        // Add wildcards to the search query for the LIKE clause
+        $search_param = "%" . $search_query . "%";
+        $stmt->bind_param("s", $search_param);
+
+        $stmt->execute();
+        $result = $stmt->get_result();
+
+        $artists = [];
+        while ($row = $result->fetch_assoc()) {
+            $artists[] = [
+                'id' => $row['id'],
+                'name' => $row['name'],
+                'imageUrl' => $row['imageUrl'] ?? null,
+            ];
+        }
+
+        $stmt->close();
+        return $artists; 
+    } catch (Exception $e) {
+        error_log("Database error in getArtistQuery: " . $e->getMessage());
+        return null;
+    }
+}
+
+
+
     public function getCreatorArtistProfiles($data)
 {
 
@@ -964,10 +1100,13 @@ public function getArtistDiscovery($artist_id)
         return null;
     }
 }
+
+
+
 public function updateArtistProfileImage($artistId,  $imageType,$mediaId, $creator_id) {
     try {
         // Validate input
-        if (empty($artistId) || empty($mediaId) || !in_array($imageType, ['profile', 'cover'])) {
+        if (empty($artistId) || empty($mediaId) || !in_array($imageType, ['profile_image', 'cover_image'])) {
             throw new Exception("Invalid input: artist Id, media Id, or image Type is missing or invalid.");
         }
 
@@ -1008,7 +1147,7 @@ public function updateArtistProfileImage($artistId,  $imageType,$mediaId, $creat
         }
 
         // Determine the column to update based on image type
-        $columnToUpdate = $imageType === 'profile' ? 'profile_image_id' : 'cover_image_id';
+        $columnToUpdate = $imageType === 'profile_image' ? 'profile_image_id' : 'cover_image_id';
 
         // Update the artist record
         $updateQuery = "UPDATE `artists` SET `$columnToUpdate` = ?, `lastupdate` = NOW() WHERE `id` = ?";
