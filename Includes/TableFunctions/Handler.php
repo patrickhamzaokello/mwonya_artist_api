@@ -436,6 +436,50 @@ class Handler
         }
     }
 
+    public function updateCreatorPassword($data) {
+        $password = $data['password'];
+        $user_id = $data['user_id'];
+        $user_email = $data['user_email'];
+    
+        try {
+            // Prepare the update query
+            $update_query = "UPDATE MwonyaCreators SET password = ?, updated_at = NOW() WHERE id = ? and email = ?";
+            $update_stmt = $this->conn->prepare($update_query);
+    
+            if (!$update_stmt) {
+                throw new Exception("Failed to prepare update statement: " . $this->conn->error);
+            }
+    
+            // Bind parameters to the query
+            $update_stmt->bind_param("sss", $password, $user_id, $user_email);
+    
+            // Execute the query
+            $update_stmt->execute();
+    
+            // Check if any rows were affected
+            if ($update_stmt->affected_rows > 0) {
+                $update_stmt->close();
+                return [
+                    'status' => 'success',
+                    'message' => 'Password updated successfully.'
+                ];
+            } else {
+                $update_stmt->close();
+                return [
+                    'status' => 'error',
+                    'message' => 'Invalid user credentials, password reset failed to complete.'
+                ];
+            }
+        } catch (Exception $e) {
+            // Log the error and return a descriptive message
+            error_log("Database error in updateCreatorPassword: " . $e->getMessage());
+            return [
+                'status' => 'error',
+                'message' => $e->getMessage()
+            ];
+        }
+    }
+
     public function updateEmailVerified($data) {
         $email = $data['email'];
         $user_id = $data['user_id'];
@@ -1433,108 +1477,42 @@ public function saveMediaUpload($uploadDetails){
         // Begin a transaction
         $this->conn->begin_transaction();
 
-        // Check if the file hash already exists
-        $checkQuery = "
-            SELECT `upload_id` 
-            FROM `Uploads` 
-           WHERE `file_hash` = ? AND `upload_status` = 'completed'";
-        $checkStmt = $this->conn->prepare($checkQuery);
+        // Insert a new record
+        $insertQuery = "
+            INSERT INTO Uploads 
+                (`user_id`, `upload_type`, `file_path`, `file_name`, `file_size`, `file_format`, `metadata`, `file_hash`, `uploaded_at`, `is_active`, `upload_status`) 
+            VALUES 
+                (?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, 'pending')";
+        $insertStmt = $this->conn->prepare($insertQuery);
 
-        if (!$checkStmt) {
-            throw new Exception("Failed to prepare hash check statement: " . $this->conn->error);
+
+        $insertStmt->bind_param(
+            "ssssisssi",
+            $uploadDetails['user_id'],
+            $uploadDetails['upload_type'],
+            $uploadDetails['file_path'],
+            $uploadDetails['file_name'],
+            $uploadDetails['file_size'],
+            $uploadDetails['file_format'],
+            $uploadDetails['metadata'],
+            $uploadDetails['file_hash'],
+            $uploadDetails['is_active']
+        );
+
+        if (!$insertStmt->execute()) {
+            throw new Exception("Failed to execute upload insert query: " . $insertStmt->error);
+
         }
 
-        $checkStmt->bind_param("s", $uploadDetails['file_hash']);
+        $lastInsertId = $this->conn->insert_id;
 
-        if (!$checkStmt->execute()) {
-            throw new Exception("Failed to execute hash check query: " . $checkStmt->error);
-        }
+        $this->conn->commit();
 
-        $result = $checkStmt->get_result();
-        if ($result->num_rows > 0) {
-            $existing = $result->fetch_assoc();
-            throw new Exception("Duplicate file detected with ID: " . $existing['upload_id']);
-        }
-
-        // Check if a pending record exists for the same hash
-        $pendingQuery = "
-            SELECT `upload_id` 
-            FROM `Uploads` 
-            WHERE `file_hash` = ? AND `upload_status` = 'pending'";
-        $pendingStmt = $this->conn->prepare($pendingQuery);
-        $pendingStmt->bind_param("s", $uploadDetails['file_hash']);
-        $pendingStmt->execute();
-        $pendingResult = $pendingStmt->get_result();
-
-        if ($pendingResult->num_rows > 0) {
-            // Update the existing pending record
-            $existing = $pendingResult->fetch_assoc();
-            $updateQuery = "
-                UPDATE `Uploads` 
-                SET `file_path` = ?, `file_name` = ?, `file_size` = ?, `file_format` = ?, `metadata` = ?, `is_active` = ?, `date_updated` = NOW()  WHERE `upload_id` = ?";
-            $updateStmt = $this->conn->prepare($updateQuery);
-            $updateStmt->bind_param(
-                "ssissii",
-                $uploadDetails['file_path'],
-                $uploadDetails['file_name'],
-                $uploadDetails['file_size'],
-                $uploadDetails['file_format'],
-                $uploadDetails['metadata'],
-                $uploadDetails['is_active'],
-                $existing['upload_id']
-            );
-
-            if (!$updateStmt->execute()) {
-                throw new Exception("Failed to update pending upload: " . $updateStmt->error);
-            }
-
-            $this->conn->commit();
-
-            return [
-                'success' => true,
-                'message' => 'Pending upload record updated successfully',
-                'upload_id' => $existing['upload_id']
-            ];
-        } else {
-            // Insert a new record
-            $insertQuery = "
-                INSERT INTO Uploads 
-                    (`user_id`, `upload_type`, `file_path`, `file_name`, `file_size`, `file_format`, `metadata`, `file_hash`, `uploaded_at`, `is_active`, `upload_status`) 
-                VALUES 
-                    (?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, 'pending')";
-            $insertStmt = $this->conn->prepare($insertQuery);
-
-            if (!$insertStmt) {
-                throw new Exception("Failed to prepare upload insert statement: " . $this->conn->error);
-            }
-
-            $insertStmt->bind_param(
-                "ssssisssi",
-                $uploadDetails['user_id'],
-                $uploadDetails['upload_type'],
-                $uploadDetails['file_path'],
-                $uploadDetails['file_name'],
-                $uploadDetails['file_size'],
-                $uploadDetails['file_format'],
-                $uploadDetails['metadata'],
-                $uploadDetails['file_hash'],
-                $uploadDetails['is_active']
-            );
-
-            if (!$insertStmt->execute()) {
-                throw new Exception("Failed to execute upload insert query: " . $insertStmt->error);
-            }
-
-            $lastInsertId = $this->conn->insert_id;
-
-            $this->conn->commit();
-
-            return [
-                'success' => true,
-                'message' => 'Upload added successfully',
-                'upload_id' => $lastInsertId
-            ];
-        }
+        return [
+            'success' => true,
+            'message' => 'Upload added successfully',
+            'upload_id' => $lastInsertId
+        ];
     } catch (Exception $e) {
         // Rollback the transaction in case of an error
         $this->conn->rollback();
