@@ -814,14 +814,22 @@ class Handler
                 g.name AS genre_name, 
                 a.bio AS biography, 
                 a.verified, 
-                a.profilephoto AS profile_image_url, 
-                a.coverimage AS cover_image_url
+                up_profile.file_path AS profile_image_url, 
+                up_cover.file_path AS cover_image_url
             FROM 
                 artists a
             LEFT JOIN 
                 genres g 
             ON 
                 a.genre = g.id
+            LEFT JOIN
+                Uploads up_profile
+            ON
+                a.profile_image_id = up_profile.upload_id
+            LEFT JOIN
+                Uploads up_cover
+            ON
+                a.cover_image_id = up_cover.upload_id
             ORDER BY 
                 a.name ASC";
         } 
@@ -834,8 +842,8 @@ class Handler
                 g.name AS genre_name, 
                 a.bio AS biography, 
                 a.verified, 
-                a.profilephoto AS profile_image_url, 
-                a.coverimage AS cover_image_url
+                up_profile.file_path AS profile_image_url, 
+                up_cover.file_path AS cover_image_url
             FROM 
                 Creator_Artist ca
             INNER JOIN 
@@ -846,6 +854,14 @@ class Handler
                 genres g 
             ON 
                 a.genre = g.id
+            LEFT JOIN
+                Uploads up_profile
+            ON
+                a.profile_image_id = up_profile.upload_id
+            LEFT JOIN
+                Uploads up_cover
+            ON
+                a.cover_image_id = up_cover.upload_id
             WHERE 
                 ca.creator_id = ?
             ORDER BY 
@@ -1251,19 +1267,25 @@ public function createNewArtistProfile($artistDetails) {
         $this->conn->begin_transaction();
 
         // Check if the artist with the provided reference_id already exists
-        $artistCheckQuery = "SELECT `id` FROM `artists` WHERE `id` = ?";
+        $artistCheckQuery = "SELECT `id` FROM `artists` WHERE `id` = ? or (`name` = ? and `email` = ?)";
         $artistCheckStmt = $this->conn->prepare($artistCheckQuery);
 
         if (!$artistCheckStmt) {
             throw new Exception("Failed to prepare track check statement: " . $this->conn->error);
         }
 
-        $artistCheckStmt->bind_param("s", $artistDetails['artistID']);
+        $artistCheckStmt->bind_param("sss", $artistDetails['artistID'],$artistDetails['artistName'],$artistDetails['artistEmail']);
         $artistCheckStmt->execute();
         $artistCheckStmt->store_result();
 
         if ($artistCheckStmt->num_rows > 0) {
-            $message = "Artist with ID already exists.";
+            $message = "An artist already exists with the same reference, name and email.";
+            return [
+                'success' => false,
+                'message' => $message,
+                'artist_id' => $artistDetails['artistID']
+            ];
+
         } else {
             // Track does not exist, insert a new record
             $insertQuery = "
