@@ -1699,6 +1699,66 @@ public function addSingleTrackWithAlbum($trackDetails)
 
 
 
+// set album availability to 1 and songs availability to 1
+public function publishContent($content_id, $content_state)
+{
+    try {
+
+        // check if the content exists
+
+        // Begin a transaction
+        $this->conn->begin_transaction();
+
+        // Update the album availability
+        $albumQuery = "UPDATE albums SET available = ? WHERE id = ?";
+        $albumStmt = $this->conn->prepare($albumQuery);
+
+        if (!$albumStmt) {
+            throw new Exception("Failed to prepare album update statement: " . $this->conn->error);
+        }
+
+        $albumStmt->bind_param("is", $content_state, $content_id);
+
+        if (!$albumStmt->execute()) {
+            throw new Exception("Failed to update album availability: " . $albumStmt->error);
+        }
+
+        // Update the songs availability
+        $songQuery = "UPDATE songs SET available = ? WHERE album = ?";
+        $songStmt = $this->conn->prepare($songQuery);
+
+        if (!$songStmt) {
+            throw new Exception("Failed to prepare song update statement: " . $this->conn->error);
+        }
+
+        $songStmt->bind_param("is", $content_state, $content_id);
+
+        if (!$songStmt->execute()) {
+            throw new Exception("Failed to update songs availability: " . $songStmt->error);
+        }
+
+        // Commit the transaction
+        $this->conn->commit();
+
+        return [
+            'success' => true,
+            'message' => 'Content state updated successfully',
+            'content_id' => $content_id
+        ];
+
+    } catch (Exception $e) {
+        // Rollback the transaction in case of an error
+        $this->conn->rollback();
+        error_log("Database error in publishContent: " . $e->getMessage());
+        return [
+            'success' => false,
+            'message' => "Database error in publishContent: " . $e->getMessage()
+        ];
+    }
+}
+
+
+
 public function getContentDetailsByID($content_id)
 {
     try {
