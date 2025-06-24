@@ -661,6 +661,119 @@ class Handler
     }
 
 
+    public function getCreatorDetails($admin_id, $creator_id){
+
+        // check if user is admin then fetch list of creators after
+        $query = "Select id, username, email from MwonyaCreators where role = 'admin' and id = ? and email = ?";
+        $stmt = $this->conn->prepare($query);
+        if (!$stmt) {
+            throw new Exception("Failed to prepare statement: " . $this->conn->error);
+        }
+        if($stmt->bind_param("ss", $admin_id, $admin_email)){
+            $stmt->execute();
+            $result = $stmt->get_result();
+
+            if ($result->num_rows === 0) {
+                throw new Exception("No admin found with the specified ID.");
+            }
+
+            // proceed to fetch creators details
+            $query = "SELECT c.id, c.username, c.email, c.phone, c.role, c.isActive, c.created_at, c.updated_at, COUNT(ca.artist_id) AS artist_count, SUM(CASE WHEN a.verified = 1 THEN 1 ELSE 0 END) AS verified_artists FROM MwonyaCreators c  LEFT JOIN Creator_Artist ca ON c.id = ca.creator_id LEFT JOIN artists a ON ca.artist_id = a.id where c.role <> 'admin' GROUP BY c.id, c.username, c.email, c.phone, c.role, c.isActive, c.created_at, c.updated_at ORDER BY `artist_count` DESC";
+            $stmt = $this->conn->prepare($query);
+            if (!$stmt) {
+                throw new Exception("Failed to prepare statement: " . $this->conn->error);
+            }
+            $stmt->execute();
+            $result = $stmt->get_result();
+            $creators = [];
+            while ($row = $result->fetch_assoc()) {
+                $creators[] = [
+                    'id' => $row['id'],
+                    'username' => $row['username'],
+                    'email' => $row['email'],
+                    'phone' => $row['phone'],
+                    'role' => $row['role'],
+                    'isActive' => $row['isActive'],
+                    'created_at' => $row['created_at'],
+                    'updated_at' => $row['updated_at'],
+                    'artist_count' => $row['artist_count'],
+                    'verified_artists' => $row['verified_artists'],
+                ];
+            }
+
+
+
+            $stmt->close();
+            return $creators;
+        }
+
+    }
+
+
+    public function getListofCreators($admin_id, $admin_email){
+        // check if user is admin then fetch list of creators after
+        $query = "Select id, username, email from MwonyaCreators where role = 'admin' and id = ? and email = ?";
+        $stmt = $this->conn->prepare($query);
+        if (!$stmt) {
+            throw new Exception("Failed to prepare statement: " . $this->conn->error);
+        }
+        if($stmt->bind_param("ss", $admin_id, $admin_email)){
+            $stmt->execute();
+            $result = $stmt->get_result();
+
+            if ($result->num_rows === 0) {
+                throw new Exception("No admin found with the specified ID.");
+            }
+
+            // proceed to fetch creators details
+            $query = "SELECT c.id, c.username, c.email, c.phone, c.role, c.isActive, c.created_at, c.updated_at, COUNT(ca.artist_id) AS artist_count, SUM(CASE WHEN a.verified = 1 THEN 1 ELSE 0 END) AS verified_artists FROM MwonyaCreators c  LEFT JOIN Creator_Artist ca ON c.id = ca.creator_id LEFT JOIN artists a ON ca.artist_id = a.id where c.role <> 'admin' GROUP BY c.id, c.username, c.email, c.phone, c.role, c.isActive, c.created_at, c.updated_at ORDER BY `artist_count` DESC";
+            $stmt = $this->conn->prepare($query);
+            if (!$stmt) {
+                throw new Exception("Failed to prepare statement: " . $this->conn->error);
+            }
+            $stmt->execute();
+            $result = $stmt->get_result();
+            $creators = [];
+            while ($row = $result->fetch_assoc()) {
+                $creators[] = [
+                    'id' => $row['id'],
+                    'username' => $row['username'],
+                    'email' => $row['email'],
+                    'phone' => $row['phone'],
+                    'role' => $row['role'],
+                    'isActive' => $row['isActive'],
+                    'created_at' => $row['created_at'],
+                    'updated_at' => $row['updated_at'],
+                    'artist_count' => $row['artist_count'],
+                    'verified_artists' => $row['verified_artists'],
+                ];
+            }
+
+
+
+            $stmt->close();
+            return $creators;
+        }
+
+
+    }
+
+
+    public function get_artist_profile($artistid){
+
+        $artist_details = "SELECT a.id, a.name, a.email, a.phone, a.meta_data as meta_data, a.RecordLable as RecordLable, a.isIndependent as isIndependent, a.tag as tag, a.circle_cost as circle_cost, a.circle_cost_maximum as circle_cost_maximum, a.circle_duration as circle_duration, g.name AS genre, g.id as genre_id, a.bio AS bio, a.datecreated as releaseDate, a.profile_image_id as profile_image_id, a.cover_image_id as cover_image_id, pf.file_path AS profilephoto, cf.file_path AS cover_image, a.facebookurl AS facebookurl, a.twitterurl AS twitterurl, a.instagramurl AS instagramurl, a.youtubeurl AS youtubeurl FROM artists a LEFT JOIN genres g ON a.genre = g.id LEFT JOIN Uploads pf ON a.profile_image_id = pf.upload_id LEFT JOIN Uploads cf ON a.cover_image_id = cf.upload_id JOIN Creator_Artist ca on a.id = ca.artist_id WHERE a.id = ?  ORDER BY a.datecreated DESC";
+        $stmt = $this->conn->prepare($artist_details);
+        if (!$stmt) {
+            throw new Exception("Failed to prepare statement: " . $this->conn->error);
+        }
+
+        $stmt->bind_param("s", $artistid);
+        $stmt->execute();
+        $result = $stmt->get_result();      
+        return $result->fetch_assoc();
+    }
+
+
     public function listCreatorArtistProfiles($data) {
 
         $user_id = isset($data['creatorID']) ? $data['creatorID'] : "";
@@ -1105,7 +1218,7 @@ public function getArtistDiscovery($artist_id)
                 al.AES_code, 
                 al.exclusive, 
                 g.name AS genre,
-                al.artworkPath AS artwork_path,
+                al.artworkPath AS 'artwork_path',
                 COUNT(s.id) AS total_songs
             FROM 
                 albums al
@@ -1808,6 +1921,7 @@ public function getContentDetailsByID($content_id)
         // SQL query to fetch tracks for the album
         $tracksQuery = "
            SELECT 
+           s.id,
                 s.title,
                 s.duration,
                 u.file_path AS trackFilePath
@@ -1833,6 +1947,7 @@ public function getContentDetailsByID($content_id)
 
         while ($track = $tracksResult->fetch_assoc()) {
             $tracks[] = [
+                'id' => $track['id'],
                 'title' => $track['title'],
                 'duration' => $track['duration'],
                 'trackFilePath' => $track['trackFilePath']
