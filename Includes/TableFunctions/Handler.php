@@ -1208,32 +1208,7 @@ public function getArtistDiscovery($artist_id)
 {
     try {
         // SQL query to fetch album and related information with artist and genre details
-        $query = "
-            SELECT 
-                al.id, 
-                al.title, 
-                al.releaseDate, 
-                YEAR(al.releaseDate) AS release_year, 
-                al.tag,
-                al.AES_code, 
-                al.exclusive, 
-                g.name AS genre,
-                al.artworkPath AS 'artwork_path',
-                COUNT(s.id) AS total_songs
-            FROM 
-                albums al
-            LEFT JOIN 
-                artists a ON al.artist = a.id
-            LEFT JOIN 
-                genres g ON a.genre = g.id
-            LEFT JOIN 
-                songs s ON s.album = al.id
-            WHERE 
-                al.artist = ?
-            GROUP BY 
-                al.id
-            ORDER BY 
-                al.releaseDate DESC";
+        $query = "SELECT al.id, al.title, al.releaseDate, YEAR(al.releaseDate) AS release_year, al.tag, al.AES_code, al.exclusive, g.name AS genre, al.artworkPath AS upload_id, u.file_path AS artwork_path, COUNT(s.id) AS total_songs FROM albums al LEFT JOIN artists a ON al.artist = a.id LEFT JOIN genres g ON a.genre = g.id LEFT JOIN songs s ON s.album = al.id LEFT JOIN Uploads u ON u.upload_id = al.artworkPath WHERE al.artist = ?  GROUP BY al.id, al.title, al.releaseDate, al.tag, al.AES_code, al.exclusive, g.name, al.artworkPath, u.file_path ORDER BY al.releaseDate DESC";
         
         $stmt = $this->conn->prepare($query);
 
