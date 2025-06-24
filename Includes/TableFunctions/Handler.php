@@ -1860,7 +1860,8 @@ public function getContentDetailsByID($content_id)
                 a.name AS artist,
                 al.tag as releasetype,
                 al.tags as attached_tags,
-                al.artworkPath AS imageUrl,
+                al.artworkPath AS upload_id,
+                u.file_path AS imageUrl,
                 g.name AS genre_name,
                 al.exclusive,
                 al.available,
@@ -1870,6 +1871,8 @@ public function getContentDetailsByID($content_id)
                 albums al
             LEFT JOIN 
                 artists a ON al.artist = a.id
+            LEFT JOIN
+                Uploads u on al.artworkPath = u.upload_id
             LEFT JOIN 
                 genres g ON a.genre = g.id
             WHERE 
